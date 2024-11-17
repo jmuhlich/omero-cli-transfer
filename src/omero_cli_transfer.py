@@ -254,12 +254,13 @@ class TransferControl(GraphControl):
         pack.add_argument("filepath", type=str, help=file_help)
         pack.add_argument(
             "--binaries",
-            choices=["all", "none"],
+            choices=["all", "all-except-images", "none"],
             default="all",
             help="With `--binaries none`, only generate the metadata file "
                  "(transfer.xml or ro-crate-metadata.json). "
                  "With `--binaries all` (the default), both pixel data "
-                 "and annotation are saved.")
+                 "and annotation are saved. With `--binaries all-except-images`, "
+                 "file annotaions are saved but pixel data is not.")
 
         file_help = ("Path to where the zip file is saved")
         unpack.add_argument("filepath", type=str, help=file_help)
@@ -327,7 +328,8 @@ class TransferControl(GraphControl):
         return mrepos
 
     def _copy_files(self, id_list: Dict[str, Any], folder: str,
-                    ignore_errors: bool, conn: BlitzGateway):
+                    include_images: bool, ignore_errors: bool,
+                    conn: BlitzGateway):
         if not isinstance(id_list, dict):
             raise TypeError("id_list must be a dict")
         if not all(isinstance(item, str) for item in id_list.keys()):
@@ -343,12 +345,12 @@ class TransferControl(GraphControl):
             clean_id = int(id.split(":")[-1])
             dtype = id.split(":")[0]
             if (dtype == "Image"):
-                if (clean_id not in downloaded_ids):
-                    path = id_list[id]
-                    rel_path = path
-                    rel_path = str(Path(rel_path).parent)
-                    subfolder = os.path.join(str(Path(folder)), rel_path)
-                    os.makedirs(subfolder, mode=DIR_PERM, exist_ok=True)
+                path = id_list[id]
+                rel_path = path
+                rel_path = str(Path(rel_path).parent)
+                subfolder = os.path.join(str(Path(folder)), rel_path)
+                os.makedirs(subfolder, mode=DIR_PERM, exist_ok=True)
+                if include_images and (clean_id not in downloaded_ids):
                     obj = conn.getObject("Image", clean_id)
                     fileset = obj.getFileset()
                     if rel_path == "pixel_images" or fileset is None:
@@ -487,9 +489,9 @@ class TransferControl(GraphControl):
                 raise ValueError("Single plate or screen cannot be "
                                  "packaged in human-readable format")
 
-        if (args.binaries == "none") and args.simple:
-            raise ValueError("The `--binaries none` and `--simple` options "
-                             "are  incompatible")
+        if (args.binaries != "all") and args.simple:
+            raise ValueError("The `--simple` option is only compatible with "
+                             "`--binaries all`")
         if src_datatype not in ["Image", "Dataset", "Project",
                                 "Plate", "Screen"]:
             print("Object is not a project, dataset, screen, plate or image")
@@ -536,10 +538,11 @@ class TransferControl(GraphControl):
             with open(md_fp, 'w') as fp:
                 print(to_xml(ome), file=fp)
                 fp.close()
-        if args.binaries == "all":
+        if args.binaries in ("all", "all-except-images"):
             print("Starting file copy...")
-            self._copy_files(path_id_dict, folder, args.ignore_errors,
-                             self.gateway)
+            include_images = args.binaries == "all"
+            self._copy_files(path_id_dict, folder, include_images,
+                             args.ignore_errors, self.gateway)
 
         if args.simple:
             self._fix_pixels_image_simple(ome, folder, md_fp)
