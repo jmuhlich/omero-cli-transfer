@@ -1086,6 +1086,8 @@ def populate_figures(ome: OME, conn: BlitzGateway, filepath: str):
         parent = Path(filepath).parent
         figure_dir = parent / "figures"
         os.makedirs(figure_dir, exist_ok=True)
+    else:
+        return
     for fig in figure_ids:
         filepath = figure_dir / ("Figure_" + str(fig) + ".json")
         cmd = ['download', "FileAnnotation:" + str(fig), str(filepath)]
