@@ -14,6 +14,7 @@ from ome_types.model import Line, Point, Rectangle, Ellipse, Polygon, Shape
 from ome_types.model import Polyline, Label, Project, Screen, Dataset, OME
 from ome_types.model import Image, Plate, XMLAnnotation, AnnotationRef
 from ome_types.model.simple_types import Marker
+from ome_types._mixins._base_type import OMEType
 from omero.gateway import TagAnnotationWrapper, MapAnnotationWrapper
 from omero.gateway import CommentAnnotationWrapper, LongAnnotationWrapper
 from omero.gateway import FileAnnotationWrapper, OriginalFileWrapper
@@ -26,6 +27,7 @@ import xml.etree.cElementTree as ETree
 import os
 import copy
 import re
+import json
 
 
 def create_or_set_projects(pjs: List[Project], conn: BlitzGateway,
@@ -651,6 +653,77 @@ def link_one_annotation(obj: IObject, ann: Annotation, ann_map: dict,
         obj.linkAnnotation(ann_obj)
 
 
+def apply_pvcs(im_obj, pvcs, conn):
+    """Apply PathViewer channel settings to im_obj."""
+    comm_ann = CommentAnnotationWrapper(conn)
+    comm_ann.setNs("glencoesoftware.com/pathviewer/channel/settings")
+    comm_ann.setValue(pvcs)
+    comm_ann.save()
+    channel0 = im_obj.getChannels()[0]
+    channel0.linkAnnotation(comm_ann)
+
+
+def apply_rdef(im_obj, rdef, conn):
+    """Apply RenderingDef settings to im_obj"""
+    # Based on code from omero-cli-render's "set" command.
+    settings = json.loads(rdef)
+    cs = settings["c"]
+    if len(cs) != im_obj.getSizeC():
+        print(f"Wrong number of channels in renderingdef (old rdef {rdef['id']}, new image {im_obj.id})")
+        return
+    windows = [(c["start"], c["end"]) for c in cs]
+    colors = [c["color"] for c in cs]
+    names = {i: c["label"] for i, c in enumerate(cs, 1)}
+    active_channels = [i for i, c in enumerate(cs, 1) if c["active"]]
+    im_obj.set_active_channels(
+        names.keys(), windows=windows, colors=colors, set_inactive=True
+    )
+    if settings["model"] == "rgb":
+        im_obj.setColorRenderingModel()
+    elif settings["model"] == "greyscale":
+        im_obj.setGreyscaleRenderingModel()
+    else:
+        print(f"Unrecognized renderingdef model: {settings['model']}")
+    im_obj.set_active_channels(active_channels)
+    im_obj.setDefaultZ(settings["z"])
+    im_obj.setDefaultT(settings["t"])
+    im_obj.saveDefaults()
+    conn.setChannelNames("Image", [im_obj.id], names)
+
+
+def pop_annotation(ome: OME, obj: OMEType, namespace: str):
+    """Remove and return obj's first annotation matching the given namespace
+
+    Removes the annotation reference from obj and also removes the annotation
+    itself from ome's list of annotations.
+
+    """
+    if not hasattr(obj, "annotation_refs"):
+        raise ValueError("obj does not have an annotation_refs attribute")
+    for r in obj.annotation_refs:
+        if r.ref.namespace == namespace:
+            # Avoid early gc of weakly-referenced annotation object.
+            ann = r.ref
+            ome.structured_annotations.remove(ann)
+            obj.annotation_refs.remove(r)
+            return ann
+    else:
+        return None
+
+
+def apply_image_settings(ome: OME, img_map: dict, conn: BlitzGateway):
+    for img in ome.images:
+        img_id = img_map.get(img.id)
+        if not img_id:
+            print(f"Image corresponding to {img.id} not found. Skipping.")
+            continue
+        im_obj = conn.getObject("Image", img_id)
+        pvcs_ann = pop_annotation(ome, img, "openmicroscopy.org/cli/transfer/pathviewer-channel-settings")
+        rdef_ann = pop_annotation(ome, img, "openmicroscopy.org/cli/transfer/renderingdef")
+        apply_pvcs(im_obj, pvcs_ann.value, conn)
+        apply_rdef(im_obj, rdef_ann.value, conn)
+
+
 def rename_images(imgs: List[Image], img_map: dict, conn: BlitzGateway):
     for img in imgs:
         try:
@@ -679,6 +752,7 @@ def populate_omero(ome: OME, img_map: dict, conn: BlitzGateway, hash: str,
                    folder: str, metadata: List[str], merge: bool,
                    figure: bool):
     plate_map, ome = create_plate_map(ome, img_map, conn)
+    apply_image_settings(ome, img_map, conn)
     rename_images(ome.images, img_map, conn)
     rename_plates(ome.plates, plate_map, conn)
     proj_map = create_or_set_projects(ome.projects, conn, merge)
