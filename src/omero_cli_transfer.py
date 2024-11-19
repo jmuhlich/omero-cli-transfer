@@ -657,9 +657,10 @@ class TransferControl(GraphControl):
             raise TypeError("XML is not valid OME format")
         img_map = DefaultDict(list)
         filelist = []
-        newome = copy.deepcopy(ome)
+        #newome = copy.deepcopy(ome)
+        newome = OME(**ome.dict())
         map_ref_ids = []
-        for img in ome.images:
+        for img in newome.images:
             fpath = get_server_path(img.annotation_refs,
                                     ome.structured_annotations)
             img_map[fpath].append(int(img.id.split(":")[-1]))
@@ -668,20 +669,15 @@ class TransferControl(GraphControl):
                 filelist.append(fpath.rstrip("mock_folder"))
             else:
                 filelist.append(fpath)
-            for anref in img.annotation_refs:
-                for an in newome.structured_annotations:
-                    if anref.id == an.id and isinstance(an, XMLAnnotation):
-                        tree = ETree.fromstring(to_xml(an.value,
-                                                       canonicalize=True))
-                        for el in tree:
-                            if el.tag.rpartition('}')[2] == \
-                                    "CLITransferServerPath":
-                                newome.structured_annotations.remove(an)
-                                map_ref_ids.append(an.id)
-        for i in newome.images:
-            for ref in i.annotation_refs:
-                if ref.id in map_ref_ids:
-                    i.annotation_refs.remove(ref)
+            # Copy refs with list() so we can modify the original while iterating.
+            for anref in list(img.annotation_refs):
+                an = anref.ref
+                if isinstance(an, XMLAnnotation):
+                    tree = ETree.fromstring(to_xml(an.value, canonicalize=True))
+                    for el in tree:
+                        if el.tag.rpartition('}')[2] == "CLITransferServerPath":
+                            img.annotation_refs.remove(anref)
+                            newome.structured_annotations.remove(an)
         filelist = list(set(filelist))
         img_map = DefaultDict(list, {x: sorted(img_map[x])
                               for x in img_map.keys()})
