@@ -18,12 +18,13 @@ from ome_types.model import CommentAnnotation, LongAnnotation
 from ome_types.model import Point, Line, Rectangle, Ellipse, Polygon
 from ome_types.model import Polyline, Label, Shape
 from ome_types.model.map import M
+from ome_types.model import UnitsLength
 from omero.sys import Parameters
 from omero.gateway import BlitzGateway
 from omero.model import TagAnnotationI, MapAnnotationI, FileAnnotationI
 from omero.model import CommentAnnotationI, LongAnnotationI, Fileset
 from omero.model import PointI, LineI, RectangleI, EllipseI, PolygonI
-from omero.model import PolylineI, LabelI, ImageI, RoiI, IObject
+from omero.model import PolylineI, LabelI, Shape as OShape, ImageI, RoiI, IObject
 from omero.model import DatasetI, ProjectI, ScreenI, PlateI, WellI, Annotation
 from omero.cli import CLI
 from typing import Tuple, List, Optional, Union, Any, Dict, TextIO
@@ -42,6 +43,19 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 import copy
+
+
+font_style_map = {
+    "normal": "Normal",
+    "bold": "Bold",
+    "bolditalic": "BoldItalic",
+    "italic": "Italic",
+}
+
+identity_transform_args = dict(zip(
+    ('a00', 'a01', 'a02', 'a10', 'a11', 'a12'),
+    (1, 0, 0, 0, 1, 0),
+))
 
 
 def create_proj_and_ref(**kwargs) -> Tuple[Project, ProjectRef]:
@@ -156,26 +170,7 @@ def create_file_ann_and_ref(**kwargs) -> Tuple[FileAnnotation, AnnotationRef]:
 def create_point(shape: PointI) -> Point:
     args = {'id': shape.getId().val, 'x': shape.getX().val,
             'y': shape.getY().val}
-    args['text'] = ''
-    args['the_c'] = 0
-    args['the_z'] = 0
-    args['the_t'] = 0
-    if shape.getTextValue() is not None:
-        args['text'] = shape.getTextValue().val
-    if shape.getTheC() is not None:
-        args['the_c'] = max(shape.getTheC().val, 0)
-    if shape.getTheZ() is not None:
-        args['the_z'] = shape.getTheZ().val
-    if shape.getTheT() is not None:
-        args['the_t'] = shape.getTheT().val
-    if shape.getFillColor() is not None:
-        args['fill_color'] = shape.getFillColor().val
-    if shape.getLocked() is not None:
-        args['locked'] = shape.getLocked().val
-    if shape.getStrokeColor() is not None:
-        args['stroke_color'] = shape.getStrokeColor().val
-    if shape.getStrokeWidth() is not None:
-        args['stroke_width'] = shape.getStrokeWidth().getValue()
+    args.update(get_shape_args(shape))
     pt = Point(**args)
     return pt
 
@@ -184,30 +179,7 @@ def create_line(shape: LineI) -> Line:
     args = {'id': shape.getId().val, 'x1': shape.getX1().val,
             'y1': shape.getY1().val, 'x2': shape.getX2().val,
             'y2': shape.getY2().val}
-    args['text'] = ''
-    args['the_c'] = 0
-    args['the_z'] = 0
-    args['the_t'] = 0
-    if shape.getTextValue() is not None:
-        args['text'] = shape.getTextValue().val
-    if shape.getTheC() is not None:
-        args['the_c'] = max(shape.getTheC().val, 0)
-    if shape.getTheZ() is not None:
-        args['the_z'] = shape.getTheZ().val
-    if shape.getTheT() is not None:
-        args['the_t'] = shape.getTheT().val
-    if shape.getFillColor() is not None:
-        args['fill_color'] = shape.getFillColor().val
-    if shape.getLocked() is not None:
-        args['locked'] = shape.getLocked().val
-    if shape.getStrokeColor() is not None:
-        args['stroke_color'] = shape.getStrokeColor().val
-    if shape.getStrokeWidth() is not None:
-        args['stroke_width'] = shape.getStrokeWidth().getValue()
-    if shape.getMarkerStart() is not None:
-        args['marker_start'] = shape.getMarkerStart().val
-    if shape.getMarkerEnd() is not None:
-        args['marker_end'] = shape.getMarkerEnd().val
+    args.update(get_shape_args(shape))
     ln = Line(**args)
     return ln
 
@@ -216,26 +188,7 @@ def create_rectangle(shape: RectangleI) -> Rectangle:
     args = {'id': shape.getId().val, 'x': shape.getX().val,
             'y': shape.getY().val, 'height': shape.getHeight().val,
             'width': shape.getWidth().val}
-    args['text'] = ''
-    args['the_c'] = 0
-    args['the_z'] = 0
-    args['the_t'] = 0
-    if shape.getTextValue() is not None:
-        args['text'] = shape.getTextValue().val
-    if shape.getTheC() is not None:
-        args['the_c'] = max(shape.getTheC().val, 0)
-    if shape.getTheZ() is not None:
-        args['the_z'] = shape.getTheZ().val
-    if shape.getTheT() is not None:
-        args['the_t'] = shape.getTheT().val
-    if shape.getFillColor() is not None:
-        args['fill_color'] = shape.getFillColor().val
-    if shape.getLocked() is not None:
-        args['locked'] = shape.getLocked().val
-    if shape.getStrokeColor() is not None:
-        args['stroke_color'] = shape.getStrokeColor().val
-    if shape.getStrokeWidth() is not None:
-        args['stroke_width'] = shape.getStrokeWidth().getValue()
+    args.update(get_shape_args(shape))
     rec = Rectangle(**args)
     return rec
 
@@ -244,78 +197,21 @@ def create_ellipse(shape: EllipseI) -> Ellipse:
     args = {'id': shape.getId().val, 'x': shape.getX().val,
             'y': shape.getY().val, 'radius_x': shape.getRadiusX().val,
             'radius_y': shape.getRadiusY().val}
-    args['text'] = ''
-    args['the_c'] = 0
-    args['the_z'] = 0
-    args['the_t'] = 0
-    if shape.getTextValue() is not None:
-        args['text'] = shape.getTextValue().val
-    if shape.getTheC() is not None:
-        args['the_c'] = max(shape.getTheC().val, 0)
-    if shape.getTheZ() is not None:
-        args['the_z'] = shape.getTheZ().val
-    if shape.getTheT() is not None:
-        args['the_t'] = shape.getTheT().val
-    if shape.getFillColor() is not None:
-        args['fill_color'] = shape.getFillColor().val
-    if shape.getLocked() is not None:
-        args['locked'] = shape.getLocked().val
-    if shape.getStrokeColor() is not None:
-        args['stroke_color'] = shape.getStrokeColor().val
-    if shape.getStrokeWidth() is not None:
-        args['stroke_width'] = shape.getStrokeWidth().getValue()
+    args.update(get_shape_args(shape))
     ell = Ellipse(**args)
     return ell
 
 
 def create_polygon(shape: PolygonI) -> Polygon:
     args = {'id': shape.getId().val, 'points': shape.getPoints().val}
-    args['text'] = ''
-    args['the_c'] = 0
-    args['the_z'] = 0
-    args['the_t'] = 0
-    if shape.getTextValue() is not None:
-        args['text'] = shape.getTextValue().val
-    if shape.getTheC() is not None:
-        args['the_c'] = max(shape.getTheC().val, 0)
-    if shape.getTheZ() is not None:
-        args['the_z'] = shape.getTheZ().val
-    if shape.getTheT() is not None:
-        args['the_t'] = shape.getTheT().val
-    if shape.getFillColor() is not None:
-        args['fill_color'] = shape.getFillColor().val
-    if shape.getLocked() is not None:
-        args['locked'] = shape.getLocked().val
-    if shape.getStrokeColor() is not None:
-        args['stroke_color'] = shape.getStrokeColor().val
-    if shape.getStrokeWidth() is not None:
-        args['stroke_width'] = shape.getStrokeWidth().getValue()
+    args.update(get_shape_args(shape))
     pol = Polygon(**args)
     return pol
 
 
 def create_polyline(shape: PolylineI) -> Polyline:
     args = {'id': shape.getId().val, 'points': shape.getPoints().val}
-    args['text'] = ''
-    args['the_c'] = 0
-    args['the_z'] = 0
-    args['the_t'] = 0
-    if shape.getTextValue() is not None:
-        args['text'] = shape.getTextValue().val
-    if shape.getTheC() is not None:
-        args['the_c'] = max(shape.getTheC().val, 0)
-    if shape.getTheZ() is not None:
-        args['the_z'] = shape.getTheZ().val
-    if shape.getTheT() is not None:
-        args['the_t'] = shape.getTheT().val
-    if shape.getFillColor() is not None:
-        args['fill_color'] = shape.getFillColor().val
-    if shape.getLocked() is not None:
-        args['locked'] = shape.getLocked().val
-    if shape.getStrokeColor() is not None:
-        args['stroke_color'] = shape.getStrokeColor().val
-    if shape.getStrokeWidth() is not None:
-        args['stroke_width'] = shape.getStrokeWidth().getValue()
+    args.update(get_shape_args(shape))
     pol = Polyline(**args)
     return pol
 
@@ -323,13 +219,15 @@ def create_polyline(shape: PolylineI) -> Polyline:
 def create_label(shape: LabelI) -> Label:
     args = {'id': shape.getId().val, 'x': shape.getX().val,
             'y': shape.getY().val}
-    args['text'] = shape.getTextValue().val
-    args['font_size'] = 10
-    args['the_c'] = 0
-    args['the_z'] = 0
-    args['the_t'] = 0
-    if shape.getFontSize() is not None:
-        args['font_size'] = shape.getFontSize().getValue()
+    args.update(get_shape_args(shape))
+    pt = Label(**args)
+    return pt
+
+
+def get_shape_args(shape: OShape) -> Dict:
+    args = {'the_c': 0, 'the_z': 0, 'the_t': 0}
+    if shape.getTextValue() is not None:
+        args['text'] = shape.getTextValue().val
     if shape.getTheC() is not None:
         args['the_c'] = max(shape.getTheC().val, 0)
     if shape.getTheZ() is not None:
@@ -338,14 +236,47 @@ def create_label(shape: LabelI) -> Label:
         args['the_t'] = shape.getTheT().val
     if shape.getFillColor() is not None:
         args['fill_color'] = shape.getFillColor().val
+    if shape.getFillRule() is not None:
+        # I'm not sure anyone even uses this feature, so we'll check for the two
+        # values I've seen in the wild and complain otherwise. We won't actually
+        # copy the value into the output args unless we can get better data to
+        # act on.
+        fill_rule = shape.getFillRule().val
+        if fill_rule not in ('NonZero', 'solid'):
+            print(f"WARNING: Unexpected fillRule '{fill_rule}' for shape {shape.id}")
+    if shape.getFontSize() is not None:
+        fs = shape.getFontSize()
+        args['font_size'] = fs.getValue()
+        args['font_size_unit'] = UnitsLength[str(fs.getUnit())]
+    if shape.getFontStyle() is not None:
+        font_style = shape.getFontStyle().val
+        # Normalize lower-case instances of font styles.
+        if font_style not in font_style_map.values():
+            font_style = font_style_map[font_style]
+        args['font_style'] = font_style
     if shape.getLocked() is not None:
         args['locked'] = shape.getLocked().val
     if shape.getStrokeColor() is not None:
         args['stroke_color'] = shape.getStrokeColor().val
+    if shape.getStrokeDashArray() is not None:
+        args['stroke_dash_array'] = shape.getStrokeDashArray().val
     if shape.getStrokeWidth() is not None:
-        args['stroke_width'] = shape.getStrokeWidth().getValue()
-    pt = Label(**args)
-    return pt
+        sw = shape.getStrokeWidth()
+        args['stroke_width'] = sw.getValue()
+        args['stroke_width_unit'] = UnitsLength[str(sw.getUnit())]
+    if shape.getTransform() is not None:
+        transform = shape.getTransform()
+        targs = {
+            'a00': transform.a00.val,
+            'a01': transform.a01.val,
+            'a02': transform.a02.val,
+            'a10': transform.a10.val,
+            'a11': transform.a11.val,
+            'a12': transform.a12.val,
+        }
+        if targs != identity_transform_args:
+            args['transform'] = targs
+    return args
 
 
 def create_shapes(roi: RoiI) -> List[Shape]:
