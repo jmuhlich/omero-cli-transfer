@@ -23,6 +23,7 @@ from omero.sys import Parameters
 from omero.gateway import BlitzGateway
 from omero.model import TagAnnotationI, MapAnnotationI, FileAnnotationI
 from omero.model import CommentAnnotationI, LongAnnotationI, Fileset
+from omero.model import XmlAnnotationI
 from omero.model import PointI, LineI, RectangleI, EllipseI, PolygonI
 from omero.model import PolylineI, LabelI, Shape as OShape, ImageI, RoiI, IObject
 from omero.model import DatasetI, ProjectI, ScreenI, PlateI, WellI, Annotation
@@ -894,6 +895,17 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
         if f.id not in [i.id for i in ome.structured_annotations]:
             ome.structured_annotations.append(f)
         obj.annotation_ref.append(ref)
+
+    elif ann.OMERO_TYPE == XmlAnnotationI:
+        xml, ref = create_xml_and_ref(id=ann.getId(),
+                                      namespace=ann.getNs(),
+                                      value=ann.getTextValue())
+        if xml.id not in [i.id for i in ome.structured_annotations]:
+            ome.structured_annotations.append(xml)
+        obj.annotation_ref.append(ref)
+
+    else:
+        raise ValueError(f"Unhandled annotation type: {ann.OMERO_TYPE.__name__}")
 
 
 def list_file_ids(ome: OME) -> dict:
