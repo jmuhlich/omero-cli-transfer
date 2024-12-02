@@ -110,7 +110,7 @@ def create_rdef_annotation(img: ImageI) -> Tuple[CommentAnnotation, AnnotationRe
 
 
 def create_pvcs_annotation(img: ImageI) -> Union[Tuple[CommentAnnotation, AnnotationRef], Tuple[None, None]]:
-    channel = next(iter(img.getChannels()))
+    channel = next(iter(img.getChannels(noRE=True)))
     for a in channel.listAnnotations():
         if a.getNs() in ("glencoesoftware.com/pathviewer/channel/settings", "pathviewer"):
             ann, annref = create_comm_and_ref(
