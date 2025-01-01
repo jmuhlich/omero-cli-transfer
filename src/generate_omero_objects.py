@@ -7,6 +7,9 @@ import ezomero
 from ome_types import to_xml
 from typing import List, Tuple, Union
 from omero.model import DatasetI, IObject, PlateI, WellI, WellSampleI, ImageI
+from omero.model import RoiI, LineI, PointI, RectangleI, EllipseI, PolygonI
+from omero.model import PolylineI, AffineTransformI, Shape as OShape, LengthI
+from omero.model import LabelI
 from omero.gateway import DatasetWrapper
 from ome_types.model import TagAnnotation, MapAnnotation, FileAnnotation, ROI
 from ome_types.model import CommentAnnotation, LongAnnotation, Annotation
@@ -20,7 +23,7 @@ from omero.gateway import CommentAnnotationWrapper, LongAnnotationWrapper
 from omero.gateway import FileAnnotationWrapper, OriginalFileWrapper
 from omero.sys import Parameters
 from omero.gateway import BlitzGateway
-from omero.rtypes import rstring, RStringI, rint
+from omero.rtypes import rstring, RStringI, rint, rdouble, rbool
 from ezomero import rois
 from pathlib import Path
 import xml.etree.cElementTree as ETree
@@ -438,80 +441,106 @@ def add_image_to_plate(image_ids: List[int], plate_id: int, column: int,
     return True
 
 
-def create_shapes(roi: ROI) -> List[Shape]:
+def create_shapes(roi: ROI) -> List[OShape]:
     shapes = []
     for shape in roi.union:
-        if shape.fill_color:
-            fc = shape.fill_color.as_rgb_tuple()
-            if len(fc) == 3:
-                fill_color = fc + (255,)
-            else:
-                alpha = fc[3] * 255
-                fill_color = fc[0:3] + (int(alpha),)
-        else:
-            fill_color = (0, 0, 0, 0)
-        if shape.stroke_color:
-            sc = shape.stroke_color.as_rgb_tuple()
-            if len(sc) == 3:
-                stroke_color = sc + (255,)
-            else:
-                stroke_color = sc
-        else:
-            stroke_color = (255, 255, 255, 255)
-        if shape.stroke_width:
-            stroke_width = int(shape.stroke_width)
-        else:
-            stroke_width = 1
         if isinstance(shape, Point):
-            sh = rois.Point(shape.x, shape.y, z=shape.the_z, c=shape.the_c,
-                            t=shape.the_t, label=shape.text,
-                            fill_color=fill_color, stroke_color=stroke_color,
-                            stroke_width=stroke_width)
+            sh = PointI()
+            # textValue is defined on each omero.model.Shape subclass
+            # separately rather than on Shape itself, so technically
+            # we should duplicate this code in each case.
+            if shape.text:
+                sh.textValue = rstring(shape.text)
+            sh.x = rdouble(shape.x)
+            sh.y = rdouble(shape.y)
         elif isinstance(shape, Line):
-            if shape.marker_start == Marker.ARROW:
-                mk_start = "Arrow"
-            else:
-                mk_start = str(shape.marker_start)
-            if shape.marker_end == Marker.ARROW:
-                mk_end = "Arrow"
-            else:
-                mk_end = str(shape.marker_end)
-            sh = rois.Line(shape.x1, shape.y1, shape.x2, shape.y2,
-                           z=shape.the_z, c=shape.the_c, t=shape.the_t,
-                           label=shape.text, markerStart=mk_start,
-                           markerEnd=mk_end)
+            sh = LineI()
+            if shape.text:
+                sh.textValue = rstring(shape.text)
+            if shape.marker_end:
+                sh.markerEnd = rstring(shape.marker_end.value)
+            if shape.marker_start:
+                sh.markerStart = rstring(shape.markerStart.value)
+            sh.x1 = rdouble(shape.x1)
+            sh.x2 = rdouble(shape.x2)
+            sh.y1 = rdouble(shape.y1)
+            sh.y2 = rdouble(shape.y2)
         elif isinstance(shape, Rectangle):
-            sh = rois.Rectangle(shape.x, shape.y, shape.width, shape.height,
-                                z=shape.the_z, c=shape.the_c, t=shape.the_t,
-                                label=shape.text)
+            sh = RectangleI()
+            if shape.text:
+                sh.textValue = rstring(shape.text)
+            sh.x = rdouble(shape.x)
+            sh.y = rdouble(shape.y)
+            sh.width = rdouble(shape.width)
+            sh.height = rdouble(shape.height)
         elif isinstance(shape, Ellipse):
-            sh = rois.Ellipse(shape.x, shape.y, shape.radius_x, shape.radius_y,
-                              z=shape.the_z, c=shape.the_c, t=shape.the_t,
-                              label=shape.text)
+            sh = EllipseI()
+            if shape.text:
+                sh.textValue = rstring(shape.text)
+            sh.x = rdouble(shape.x)
+            sh.y = rdouble(shape.y)
+            sh.radiusX = rdouble(shape.radius_x)
+            sh.radiusY = rdouble(shape.radius_y)
         elif isinstance(shape, Polygon):
-            points = []
-            for pt in shape.points.split(" "):
-                # points sometimes come with a comma at the end...
-                pt = pt.rstrip(",")
-                points.append(tuple(float(x) for x in pt.split(",")))
-            sh = rois.Polygon(points, z=shape.the_z, c=shape.the_c,
-                              t=shape.the_t, label=shape.text)
+            sh = PolygonI()
+            if shape.text:
+                sh.textValue = rstring(shape.text)
+            sh.points = rstring(shape.points)
         elif isinstance(shape, Polyline):
-            points = []
-            for pt in shape.points.split(" "):
-                # points sometimes come with a comma at the end...
-                pt = pt.rstrip(",")
-                points.append(tuple(float(x) for x in pt.split(",")))
-            sh = rois.Polyline(points, z=shape.the_z, c=shape.the_c,
-                               t=shape.the_t, label=shape.text)
+            sh = PolylineI()
+            if shape.text:
+                sh.textValue = rstring(shape.text)
+            if shape.marker_end:
+                sh.markerEnd = rstring(shape.marker_end.value)
+            if shape.marker_start:
+                sh.markerStart = rstring(shape.markerStart.value)
+            sh.points = rstring(shape.points)
         elif isinstance(shape, Label):
-            sh = rois.Label(shape.x, shape.y, z=shape.the_z, c=shape.the_c,
-                            t=shape.the_t, label=shape.text,
-                            fontSize=shape.font_size)
+            sh = LabelI()
+            if shape.text:
+                sh.textValue = rstring(shape.text)
+            sh.x = rdouble(shape.x)
+            sh.y = rdouble(shape.y)
         else:
-            continue
+            raise ValueError(f"Unhandled shape type: {type(shape).__name__}")
+        if shape.fill_color:
+            sh.fillColor = rint(shape.fill_color)
+        if shape.fill_rule:
+            sh.fillRule = rstring(shape.fill_rule)
+        # fontFamily is deprecated.
+        if shape.font_size:
+            sh.fontSize = quantity_to_length(shape.font_size_quantity)
+        if shape.font_style:
+            sh.fontStyle = rstring(shape.font_style)
+        if sh.locked is not None:
+            sh.locked = rbool(shape.locked)
+        if shape.stroke_color:
+            sh.strokeColor = rint(shape.stroke_color)
+        if shape.stroke_dash_array:
+            sh.strokeDashArray = rstring(shape.stroke_dash_array)
+        if shape.stroke_width:
+            sh.strokeWidth = quantity_to_length(shape.stroke_width_quantity)
+        if sh.theC is not None:
+            sh.theC = rint(sh.the_C)
+        if sh.theT is not None:
+            sh.theT = rint(sh.the_T)
+        if sh.theZ is not None:
+            sh.theZ = rint(sh.the_Z)
+        if shape.transform:
+            t = AffineTransformI()
+            t.a00 = rdouble(shape.transform.a00)
+            t.a10 = rdouble(shape.transform.a10)
+            t.a01 = rdouble(shape.transform.a01)
+            t.a11 = rdouble(shape.transform.a11)
+            t.a02 = rdouble(shape.transform.a02)
+            t.a12 = rdouble(shape.transform.a12)
+            sh.transform = t
         shapes.append(sh)
     return shapes
+
+
+def quantity_to_length(q):
+    return LengthI(q.m, str(q.u).upper().replace("_", ""))
 
 
 def _int_to_rgba(omero_val: int) -> Tuple[int, int, int, int]:
@@ -528,13 +557,22 @@ def _int_to_rgba(omero_val: int) -> Tuple[int, int, int, int]:
 
 def create_rois(rois: List[ROI], imgs: List[Image], img_map: dict,
                 conn: BlitzGateway):
+    new_rois = []
     for img in imgs:
         for roiref in img.roi_refs:
-            roi = next(filter(lambda x: x.id == roiref.id, rois))
-            shapes = create_shapes(roi)
-            img_id_dest = img_map[img.id]
-            ezomero.post_roi(conn, img_id_dest, shapes, name=roi.name,
-                             description=roi.description)
+            roi = roiref.ref
+            r = RoiI()
+            if roi.name:
+                r.name = rstring(roi.name)
+            if roi.description:
+                r.description = rstring(roi.description)
+            for sh in create_shapes(roi):
+                r.addShape(sh)
+            i = ImageI(img_map[img.id], False)
+            r.setImage(i)
+            new_rois.append(r)
+    update_service = conn.getUpdateService()
+    update_service.saveArray(new_rois)
     return
 
 
