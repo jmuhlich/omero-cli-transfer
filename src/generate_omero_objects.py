@@ -30,6 +30,12 @@ import re
 import json
 
 
+# FIXME Remove this once ome-types fixes this (#270).
+import ome_types.units
+ome_types.units.ureg._on_redefinition = "ignore"
+ome_types.units.ureg.define("@alias point = pt")
+
+
 def create_or_set_projects(pjs: List[Project], conn: BlitzGateway,
                            merge: bool) -> dict:
     pj_map = {}
