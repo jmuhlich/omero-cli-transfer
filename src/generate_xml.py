@@ -280,34 +280,24 @@ def get_shape_args(shape: OShape) -> Dict:
     return args
 
 
-def create_shapes(roi: RoiI) -> List[Shape]:
-    shapes: List[Shape] = []
-    for s in roi.iterateShapes():
-        if isinstance(s, PointI):
-            p = create_point(s)
-            shapes.append(p)
-        elif isinstance(s, LineI):
-            line = create_line(s)
-            shapes.append(line)
-        elif isinstance(s, RectangleI):
-            r = create_rectangle(s)
-            shapes.append(r)
-        elif isinstance(s, EllipseI):
-            e = create_ellipse(s)
-            shapes.append(e)
-        elif isinstance(s, PolygonI):
-            pol = create_polygon(s)
-            shapes.append(pol)
-        elif isinstance(s, PolylineI):
-            polline = create_polyline(s)
-            shapes.append(polline)
-        elif isinstance(s, LabelI):
-            lab = create_label(s)
-            shapes.append(lab)
-        else:
-            print("not a supported ROI type")
-            continue
-    return shapes
+def create_shape(s: OShape) -> Shape:
+    if isinstance(s, PointI):
+        return create_point(s)
+    elif isinstance(s, LineI):
+        return create_line(s)
+    elif isinstance(s, RectangleI):
+        return create_rectangle(s)
+    elif isinstance(s, EllipseI):
+        return create_ellipse(s)
+    elif isinstance(s, PolygonI):
+        return create_polygon(s)
+    elif isinstance(s, PolylineI):
+        return create_polyline(s)
+    elif isinstance(s, LabelI):
+        return create_label(s)
+    else:
+        print(f"not a supported ROI type: {type(s).__name__}")
+        return None
 
 
 def create_filepath_annotations(id: str, conn: BlitzGateway,
@@ -640,7 +630,14 @@ def populate_roi(obj: RoiI, roi_obj: IObject, ome: OME, conn: BlitzGateway
     desc = obj.getDescription()
     if desc is not None:
         desc = desc.getValue()
-    shapes = create_shapes(obj)
+    shapes = []
+    for sobj in obj.iterateShapes():
+        shape = create_shape(sobj)
+        if shape:
+            shapes.append(shape)
+            for link in conn.getAnnotationLinks("Shape", [sobj.id]):
+                ann = link.getAnnotation()
+                add_annotation(shape, ann, ome, conn)
     if not shapes:
         return None
     roi, roi_ref = create_roi_and_ref(id=id, name=name, description=desc,
@@ -830,7 +827,7 @@ def populate_well(obj: WellI, ome: OME, conn: BlitzGateway,
 
 
 def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
-                              Well, ROI],
+                              Well, ROI, Shape],
                    ann: Annotation, ome: OME, conn: BlitzGateway):
     if ann.OMERO_TYPE == TagAnnotationI:
         tag, ref = create_tag_and_ref(id=ann.getId(),
