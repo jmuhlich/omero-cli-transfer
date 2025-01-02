@@ -638,50 +638,38 @@ def link_annotations(ome: OME, proj_map: dict, ds_map: dict, img_map: dict,
     for proj in ome.projects:
         proj_id = proj_map[proj.id]
         proj_obj = conn.getObject("Project", proj_id)
-        anns = ome.structured_annotations
         for annref in proj.annotation_refs:
-            ann = next(filter(lambda x: x.id == annref.id, anns))
-            link_one_annotation(proj_obj, ann, ann_map, conn)
+            link_one_annotation(proj_obj, annref.ref, ann_map, conn)
     for ds in ome.datasets:
         ds_id = ds_map[ds.id]
         ds_obj = conn.getObject("Dataset", ds_id)
-        anns = ome.structured_annotations
         for annref in ds.annotation_refs:
-            ann = next(filter(lambda x: x.id == annref.id, anns))
-            link_one_annotation(ds_obj, ann, ann_map, conn)
+            link_one_annotation(ds_obj, annref.ref, ann_map, conn)
     for img in ome.images:
         try:
             img_id = img_map[img.id]
             img_obj = conn.getObject("Image", img_id)
-            anns = ome.structured_annotations
             for annref in img.annotation_refs:
-                ann = next(filter(lambda x: x.id == annref.id, anns))
-                link_one_annotation(img_obj, ann, ann_map, conn)
+                link_one_annotation(img_obj, annref.ref, ann_map, conn)
         except KeyError:
             continue
     for scr in ome.screens:
         scr_id = scr_map[scr.id]
         scr_obj = conn.getObject("Screen", scr_id)
-        anns = ome.structured_annotations
         for annref in scr.annotation_refs:
-            ann = next(filter(lambda x: x.id == annref.id, anns))
-            link_one_annotation(scr_obj, ann, ann_map, conn)
+            link_one_annotation(scr_obj, annref.ref, ann_map, conn)
     for pl in ome.plates:
         pl_id = pl_map[pl.id]
         pl_obj = conn.getObject("Plate", pl_id)
-        anns = ome.structured_annotations
         for annref in pl.annotation_refs:
-            ann = next(filter(lambda x: x.id == annref.id, anns))
-            link_one_annotation(pl_obj, ann, ann_map, conn)
-        anns = ome.structured_annotations
+            link_one_annotation(pl_obj, annref.ref, ann_map, conn)
         for well in pl.wells:
             if len(well.annotation_refs) > 0:
                 row, col = well.row, well.column
                 well_id = ezomero.get_well_id(conn, pl_id, row, col)
                 well_obj = conn.getObject("Well", well_id)
                 for annref in well.annotation_refs:
-                    ann = next(filter(lambda x: x.id == annref.id, anns))
-                    link_one_annotation(well_obj, ann, ann_map, conn)
+                    link_one_annotation(well_obj, annref.ref, ann_map, conn)
     return
 
 
