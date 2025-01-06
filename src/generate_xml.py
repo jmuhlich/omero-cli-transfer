@@ -45,6 +45,7 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 import copy
+import io
 
 
 font_style_map = {
@@ -152,6 +153,10 @@ def create_kv_and_ref(**kwargs) -> Tuple[MapAnnotation, AnnotationRef]:
 
 
 def create_xml_and_ref(**kwargs) -> Tuple[XMLAnnotation, AnnotationRef]:
+    try:
+        ETree.parse(io.StringIO(kwargs['value']))
+    except ETree.ParseError:
+        kwargs["value"] = XMLAnnotation.Value(any_elements=[kwargs["value"]])
     xml = XMLAnnotation(**kwargs)
     xmlref = AnnotationRef(id=xml.id)
     return xml, xmlref

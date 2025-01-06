@@ -22,7 +22,7 @@ from ome_types._mixins._base_type import OMEType
 from omero.gateway import TagAnnotationWrapper, MapAnnotationWrapper
 from omero.gateway import CommentAnnotationWrapper, LongAnnotationWrapper
 from omero.gateway import FileAnnotationWrapper, OriginalFileWrapper
-from omero.gateway import TimestampAnnotationWrapper
+from omero.gateway import TimestampAnnotationWrapper, XmlAnnotationWrapper
 from omero.sys import Parameters
 from omero.gateway import BlitzGateway
 from omero.rtypes import rstring, RStringI, rint, rdouble, rbool
@@ -33,6 +33,7 @@ import os
 import copy
 import re
 import json
+import io
 
 
 # FIXME Remove this once ome-types fixes this (#270).
@@ -219,26 +220,49 @@ def create_annotations(ans: List[Annotation], conn: BlitzGateway, hash: str,
             file_ann.save()
             ann_map[an.id] = file_ann.getId()
         elif isinstance(an, XMLAnnotation):
-            # pass if path, use if provenance metadata
-            tree = ETree.fromstring(to_xml(an.value,
-                                           canonicalize=True))
-            is_metadata = False
-            for el in tree:
-                if el.tag.rpartition('}')[2] == "CLITransferMetadata":
-                    is_metadata = True
-            if is_metadata:
-                map_ann = MapAnnotationWrapper(conn)
-                namespace = an.namespace
-                map_ann.setNs(namespace)
-                key_value_data = []
-                if not metadata:
-                    key_value_data.append(['empty_metadata', "True"])
-                else:
-                    key_value_data = parse_xml_metadata(an, metadata, hash)
-                map_ann.setValue(key_value_data)
-                map_ann.save()
-                ann_map[an.id] = map_ann.getId()
+            if an.namespace == "openmicroscopy.org/cli/transfer":
+                # pass if path, use if provenance metadata
+                tree = ETree.fromstring(to_xml(an.value,
+                                               canonicalize=True))
+                is_metadata = False
+                for el in tree:
+                    if el.tag.rpartition('}')[2] == "CLITransferMetadata":
+                        is_metadata = True
+                if is_metadata:
+                    map_ann = MapAnnotationWrapper(conn)
+                    namespace = an.namespace
+                    map_ann.setNs(namespace)
+                    key_value_data = []
+                    if not metadata:
+                        key_value_data.append(['empty_metadata', "True"])
+                    else:
+                        key_value_data = parse_xml_metadata(an, metadata, hash)
+                    map_ann.setValue(key_value_data)
+                    map_ann.save()
+                    ann_map[an.id] = map_ann.getId()
+            else:
+                xml_ann = XmlAnnotationWrapper(conn)
+                xml_ann.setValue(get_xmlannotation_value(an))
+                xml_ann.setDescription(an.description)
+                xml_ann.save()
+                ann_map[an.id] = xml_ann.getId()
     return ann_map
+
+
+def get_xmlannotation_value(a):
+    xml = a.to_xml()
+    value_xml = re.search(
+        r"<Value>.*</Value>(?=\s*</XMLAnnotation>\s*$)", xml, re.DOTALL
+    ).group()
+    elt = ETree.parse(io.StringIO(value_xml)).getroot()
+    new_xml = elt.text + "".join(ETree.tostring(c, encoding="unicode") for c in elt)
+    try:
+        new_xml = ETree.tostring(
+            ETree.parse(io.StringIO(new_xml)).getroot(), encoding="unicode"
+        )
+    except ETree.ParseError:
+        pass
+    return new_xml
 
 
 def parse_xml_metadata(ann: XMLAnnotation,
@@ -450,102 +474,99 @@ def add_image_to_plate(image_ids: List[int], plate_id: int, column: int,
     return True
 
 
-def create_shapes(roi: ROI) -> List[OShape]:
-    shapes = []
-    for shape in roi.union:
-        if isinstance(shape, Point):
-            sh = PointI()
-            # textValue is defined on each omero.model.Shape subclass
-            # separately rather than on Shape itself, so technically
-            # we should duplicate this code in each case.
-            if shape.text:
-                sh.textValue = rstring(shape.text)
-            sh.x = rdouble(shape.x)
-            sh.y = rdouble(shape.y)
-        elif isinstance(shape, Line):
-            sh = LineI()
-            if shape.text:
-                sh.textValue = rstring(shape.text)
-            if shape.marker_end:
-                sh.markerEnd = rstring(shape.marker_end.value)
-            if shape.marker_start:
-                sh.markerStart = rstring(shape.markerStart.value)
-            sh.x1 = rdouble(shape.x1)
-            sh.x2 = rdouble(shape.x2)
-            sh.y1 = rdouble(shape.y1)
-            sh.y2 = rdouble(shape.y2)
-        elif isinstance(shape, Rectangle):
-            sh = RectangleI()
-            if shape.text:
-                sh.textValue = rstring(shape.text)
-            sh.x = rdouble(shape.x)
-            sh.y = rdouble(shape.y)
-            sh.width = rdouble(shape.width)
-            sh.height = rdouble(shape.height)
-        elif isinstance(shape, Ellipse):
-            sh = EllipseI()
-            if shape.text:
-                sh.textValue = rstring(shape.text)
-            sh.x = rdouble(shape.x)
-            sh.y = rdouble(shape.y)
-            sh.radiusX = rdouble(shape.radius_x)
-            sh.radiusY = rdouble(shape.radius_y)
-        elif isinstance(shape, Polygon):
-            sh = PolygonI()
-            if shape.text:
-                sh.textValue = rstring(shape.text)
-            sh.points = rstring(shape.points)
-        elif isinstance(shape, Polyline):
-            sh = PolylineI()
-            if shape.text:
-                sh.textValue = rstring(shape.text)
-            if shape.marker_end:
-                sh.markerEnd = rstring(shape.marker_end.value)
-            if shape.marker_start:
-                sh.markerStart = rstring(shape.markerStart.value)
-            sh.points = rstring(shape.points)
-        elif isinstance(shape, Label):
-            sh = LabelI()
-            if shape.text:
-                sh.textValue = rstring(shape.text)
-            sh.x = rdouble(shape.x)
-            sh.y = rdouble(shape.y)
-        else:
-            raise ValueError(f"Unhandled shape type: {type(shape).__name__}")
-        if shape.fill_color:
-            sh.fillColor = rint(shape.fill_color)
-        if shape.fill_rule:
-            sh.fillRule = rstring(shape.fill_rule)
-        # fontFamily is deprecated.
-        if shape.font_size:
-            sh.fontSize = quantity_to_length(shape.font_size_quantity)
-        if shape.font_style:
-            sh.fontStyle = rstring(shape.font_style)
-        if sh.locked is not None:
-            sh.locked = rbool(shape.locked)
-        if shape.stroke_color:
-            sh.strokeColor = rint(shape.stroke_color)
-        if shape.stroke_dash_array:
-            sh.strokeDashArray = rstring(shape.stroke_dash_array)
-        if shape.stroke_width:
-            sh.strokeWidth = quantity_to_length(shape.stroke_width_quantity)
-        if sh.theC is not None:
-            sh.theC = rint(sh.the_C)
-        if sh.theT is not None:
-            sh.theT = rint(sh.the_T)
-        if sh.theZ is not None:
-            sh.theZ = rint(sh.the_Z)
-        if shape.transform:
-            t = AffineTransformI()
-            t.a00 = rdouble(shape.transform.a00)
-            t.a10 = rdouble(shape.transform.a10)
-            t.a01 = rdouble(shape.transform.a01)
-            t.a11 = rdouble(shape.transform.a11)
-            t.a02 = rdouble(shape.transform.a02)
-            t.a12 = rdouble(shape.transform.a12)
-            sh.transform = t
-        shapes.append(sh)
-    return shapes
+def create_shape(shape: Shape) -> OShape:
+    if isinstance(shape, Point):
+        sh = PointI()
+        # textValue is defined on each omero.model.Shape subclass
+        # separately rather than on Shape itself, so technically
+        # we should duplicate this code in each case.
+        if shape.text:
+            sh.textValue = rstring(shape.text)
+        sh.x = rdouble(shape.x)
+        sh.y = rdouble(shape.y)
+    elif isinstance(shape, Line):
+        sh = LineI()
+        if shape.text:
+            sh.textValue = rstring(shape.text)
+        if shape.marker_end:
+            sh.markerEnd = rstring(shape.marker_end.value)
+        if shape.marker_start:
+            sh.markerStart = rstring(shape.markerStart.value)
+        sh.x1 = rdouble(shape.x1)
+        sh.x2 = rdouble(shape.x2)
+        sh.y1 = rdouble(shape.y1)
+        sh.y2 = rdouble(shape.y2)
+    elif isinstance(shape, Rectangle):
+        sh = RectangleI()
+        if shape.text:
+            sh.textValue = rstring(shape.text)
+        sh.x = rdouble(shape.x)
+        sh.y = rdouble(shape.y)
+        sh.width = rdouble(shape.width)
+        sh.height = rdouble(shape.height)
+    elif isinstance(shape, Ellipse):
+        sh = EllipseI()
+        if shape.text:
+            sh.textValue = rstring(shape.text)
+        sh.x = rdouble(shape.x)
+        sh.y = rdouble(shape.y)
+        sh.radiusX = rdouble(shape.radius_x)
+        sh.radiusY = rdouble(shape.radius_y)
+    elif isinstance(shape, Polygon):
+        sh = PolygonI()
+        if shape.text:
+            sh.textValue = rstring(shape.text)
+        sh.points = rstring(shape.points)
+    elif isinstance(shape, Polyline):
+        sh = PolylineI()
+        if shape.text:
+            sh.textValue = rstring(shape.text)
+        if shape.marker_end:
+            sh.markerEnd = rstring(shape.marker_end.value)
+        if shape.marker_start:
+            sh.markerStart = rstring(shape.markerStart.value)
+        sh.points = rstring(shape.points)
+    elif isinstance(shape, Label):
+        sh = LabelI()
+        if shape.text:
+            sh.textValue = rstring(shape.text)
+        sh.x = rdouble(shape.x)
+        sh.y = rdouble(shape.y)
+    else:
+        raise ValueError(f"Unhandled shape type: {type(shape).__name__}")
+    if shape.fill_color:
+        sh.fillColor = rint(shape.fill_color)
+    if shape.fill_rule:
+        sh.fillRule = rstring(shape.fill_rule)
+    # fontFamily is deprecated.
+    if shape.font_size:
+        sh.fontSize = quantity_to_length(shape.font_size_quantity)
+    if shape.font_style:
+        sh.fontStyle = rstring(shape.font_style)
+    if sh.locked is not None:
+        sh.locked = rbool(shape.locked)
+    if shape.stroke_color:
+        sh.strokeColor = rint(shape.stroke_color)
+    if shape.stroke_dash_array:
+        sh.strokeDashArray = rstring(shape.stroke_dash_array)
+    if shape.stroke_width:
+        sh.strokeWidth = quantity_to_length(shape.stroke_width_quantity)
+    if sh.theC is not None:
+        sh.theC = rint(sh.the_C)
+    if sh.theT is not None:
+        sh.theT = rint(sh.the_T)
+    if sh.theZ is not None:
+        sh.theZ = rint(sh.the_Z)
+    if shape.transform:
+        t = AffineTransformI()
+        t.a00 = rdouble(shape.transform.a00)
+        t.a10 = rdouble(shape.transform.a10)
+        t.a01 = rdouble(shape.transform.a01)
+        t.a11 = rdouble(shape.transform.a11)
+        t.a02 = rdouble(shape.transform.a02)
+        t.a12 = rdouble(shape.transform.a12)
+        sh.transform = t
+    return sh
 
 
 def quantity_to_length(q):
@@ -565,7 +586,7 @@ def _int_to_rgba(omero_val: int) -> Tuple[int, int, int, int]:
 
 
 def create_rois(rois: List[ROI], imgs: List[Image], img_map: dict,
-                conn: BlitzGateway):
+                ann_map: dict, conn: BlitzGateway):
     new_rois = []
     for img in imgs:
         for roiref in img.roi_refs:
@@ -575,8 +596,13 @@ def create_rois(rois: List[ROI], imgs: List[Image], img_map: dict,
                 r.name = rstring(roi.name)
             if roi.description:
                 r.description = rstring(roi.description)
-            for sh in create_shapes(roi):
-                r.addShape(sh)
+            for annref in roi.annotation_refs:
+                link_one_annotation(r, annref.ref, ann_map, conn)
+            for shape in roi.union:
+                s = create_shape(shape)
+                r.addShape(s)
+                for annref in shape.annotation_refs:
+                    link_one_annotation(s, annref.ref, ann_map, conn)
             i = ImageI(img_map[img.id], False)
             r.setImage(i)
             new_rois.append(r)
@@ -676,23 +702,10 @@ def link_annotations(ome: OME, proj_map: dict, ds_map: dict, img_map: dict,
 def link_one_annotation(obj: IObject, ann: Annotation, ann_map: dict,
                         conn: BlitzGateway):
     ann_id = ann_map[ann.id]
-    if isinstance(ann, TagAnnotation):
-        ann_obj = conn.getObject("TagAnnotation", ann_id)
-    elif isinstance(ann, MapAnnotation):
-        ann_obj = conn.getObject("MapAnnotation", ann_id)
-    elif isinstance(ann, CommentAnnotation):
-        ann_obj = conn.getObject("CommentAnnotation", ann_id)
-    elif isinstance(ann, TimestampAnnotation):
-        ann_obj = conn.getObject("TimestampAnnotation", ann_id)
-    elif isinstance(ann, LongAnnotation):
-        ann_obj = conn.getObject("LongAnnotation", ann_id)
-    elif isinstance(ann, FileAnnotation):
-        ann_obj = conn.getObject("FileAnnotation", ann_id)
-    elif isinstance(ann, XMLAnnotation):
-        ann_obj = conn.getObject("MapAnnotation", ann_id)
-    else:
-        ann_obj = None
+    ann_obj = conn.getObject("Annotation", ann_id)
     if ann_obj:
+        if isinstance(obj, IObject):
+            ann_obj = ann_obj._obj
         obj.linkAnnotation(ann_obj)
 
 
@@ -803,7 +816,7 @@ def populate_omero(ome: OME, img_map: dict, conn: BlitzGateway, hash: str,
     screen_map = create_or_set_screens(ome.screens, conn, merge)
     ann_map = create_annotations(ome.structured_annotations, conn,
                                  hash, folder, figure, img_map, metadata)
-    create_rois(ome.rois, ome.images, img_map, conn)
+    create_rois(ome.rois, ome.images, img_map, ann_map, conn)
     link_plates(ome, screen_map, plate_map, conn)
     link_datasets(ome, proj_map, ds_map, conn)
     link_images(ome, ds_map, img_map, conn)
