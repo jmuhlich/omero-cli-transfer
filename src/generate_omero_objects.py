@@ -32,6 +32,7 @@ import os
 import copy
 import re
 import json
+import io
 
 
 # FIXME Remove this once ome-types fixes this (#270).
@@ -240,11 +241,27 @@ def create_annotations(ans: List[Annotation], conn: BlitzGateway, hash: str,
                     ann_map[an.id] = map_ann.getId()
             else:
                 xml_ann = XmlAnnotationWrapper(conn)
-                xml_ann.setValue(an.value)
+                xml_ann.setValue(get_xmlannotation_value(an.value))
                 xml_ann.setDescription(an.description)
                 xml_ann.save()
                 ann_map[an.id] = xml_ann.getId()
     return ann_map
+
+
+def get_xmlannotation_value(a):
+    xml = a.to_xml()
+    value_xml = re.search(
+        r"<Value>.*</Value>(?=\s*</XMLAnnotation>\s*$)", xml, re.DOTALL
+    ).group()
+    elt = ETree.parse(io.StringIO(value_xml)).getroot()
+    new_xml = elt.text + "".join(ETree.tostring(c, encoding="unicode") for c in elt)
+    try:
+        new_xml = ETree.tostring(
+            ETree.parse(io.StringIO(new_xml)).getroot(), encoding="unicode"
+        )
+    except ETree.ParseError:
+        pass
+    return new_xml
 
 
 def parse_xml_metadata(ann: XMLAnnotation,
