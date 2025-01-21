@@ -610,7 +610,6 @@ class TransferControl(GraphControl):
             ln_s = False
         dest_img_map = self._import_files(folder, filelist,
                                           ln_s, args.skip, self.gateway)
-        self._delete_all_rois(dest_img_map, self.gateway)
         print("Matching source and destination images...")
         img_map = self._make_image_map(src_img_map, dest_img_map, self.gateway)
         print("Creating and linking OMERO objects...")
@@ -700,15 +699,6 @@ class TransferControl(GraphControl):
             img_ids = self._get_image_ids(dest_path, gateway)
             dest_map[dest_path] = img_ids
         return dest_map
-
-    def _delete_all_rois(self, dest_map: dict, gateway: BlitzGateway):
-        roi_service = gateway.getRoiService()
-        for imgs in dest_map.values():
-            for img in imgs:
-                result = roi_service.findByImage(img, None)
-                for roi in result.rois:
-                    gateway.deleteObject(roi)
-        return
 
     def _get_image_ids(self, file_path: str, conn: BlitzGateway) -> List[str]:
         """Get the Ids of imported images.

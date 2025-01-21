@@ -34,6 +34,7 @@ import copy
 import re
 import json
 import io
+import generate_xml
 
 
 # FIXME Remove this once ome-types fixes this (#270).
@@ -166,10 +167,12 @@ def find_dataset(ds: Dataset, pjs: List[Project], conn: BlitzGateway) -> int:
 
 
 def create_annotations(ans: List[Annotation], conn: BlitzGateway, hash: str,
-                       folder: str, figure: bool, img_map: dict,
+                       folder: str, figure: bool, obj_map: dict, img_map: dict,
                        metadata: List[str]) -> dict:
     ann_map = {}
     for an in ans:
+        if an.id in obj_map:
+            continue
         if isinstance(an, TagAnnotation):
             tag_ann = TagAnnotationWrapper(conn)
             tag_ann.setValue(an.value)
@@ -254,6 +257,10 @@ def get_xmlannotation_value(a):
     value_xml = re.search(
         r"<Value>.*</Value>(?=\s*</XMLAnnotation>\s*$)", xml, re.DOTALL
     ).group()
+    value_xml = value_xml.replace(
+        "<Value>",
+        '<Value xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+    )
     elt = ETree.parse(io.StringIO(value_xml)).getroot()
     new_xml = elt.text + "".join(ETree.tostring(c, encoding="unicode") for c in elt)
     try:
@@ -585,11 +592,13 @@ def _int_to_rgba(omero_val: int) -> Tuple[int, int, int, int]:
     return (r, g, b, a)
 
 
-def create_rois(rois: List[ROI], imgs: List[Image], img_map: dict,
-                ann_map: dict, conn: BlitzGateway):
+def create_rois(rois: List[ROI], imgs: List[Image], obj_map: dict,
+                img_map: dict, conn: BlitzGateway):
     new_rois = []
     for img in imgs:
         for roiref in img.roi_refs:
+            if roiref.id in obj_map:
+                continue
             roi = roiref.ref
             r = RoiI()
             if roi.name:
@@ -597,12 +606,12 @@ def create_rois(rois: List[ROI], imgs: List[Image], img_map: dict,
             if roi.description:
                 r.description = rstring(roi.description)
             for annref in roi.annotation_refs:
-                link_one_annotation(r, annref.ref, ann_map, conn)
+                link_one_annotation(r, annref.ref, obj_map, conn)
             for shape in roi.union:
                 s = create_shape(shape)
                 r.addShape(s)
                 for annref in shape.annotation_refs:
-                    link_one_annotation(s, annref.ref, ann_map, conn)
+                    link_one_annotation(s, annref.ref, obj_map, conn)
             i = ImageI(img_map[img.id], False)
             r.setImage(i)
             new_rois.append(r)
@@ -611,42 +620,41 @@ def create_rois(rois: List[ROI], imgs: List[Image], img_map: dict,
     return
 
 
-def link_datasets(ome: OME, proj_map: dict, ds_map: dict, conn: BlitzGateway):
+def link_datasets(ome: OME, obj_map: dict, conn: BlitzGateway):
     for proj in ome.projects:
-        proj_id = proj_map[proj.id]
+        proj_id = obj_map[proj.id]
         proj_obj = conn.getObject("Project", proj_id)
         existing_ds = []
         for dataset in proj_obj.listChildren():
             existing_ds.append(dataset.getId())
         ds_ids = []
         for ds in proj.dataset_refs:
-            ds_id = ds_map[ds.id]
+            ds_id = obj_map[ds.id]
             if ds_id not in existing_ds:
                 ds_ids.append(ds_id)
         ezomero.link_datasets_to_project(conn, ds_ids, proj_id)
     return
 
 
-def link_plates(ome: OME, screen_map: dict, plate_map: dict,
-                conn: BlitzGateway):
+def link_plates(ome: OME, obj_map: dict, conn: BlitzGateway):
     for screen in ome.screens:
-        screen_id = screen_map[screen.id]
+        screen_id = obj_map[screen.id]
         scr_obj = conn.getObject("Screen", screen_id)
         existing_pl = []
         for pl in scr_obj.listChildren():
             existing_pl.append(pl.getId())
         pl_ids = []
         for pl in screen.plate_refs:
-            pl_id = plate_map[pl.id]
+            pl_id = obj_map[pl.id]
             if pl_id not in existing_pl:
                 pl_ids.append(pl_id)
         ezomero.link_plates_to_screen(conn, pl_ids, screen_id)
     return
 
 
-def link_images(ome: OME, ds_map: dict, img_map: dict, conn: BlitzGateway):
+def link_images(ome: OME, obj_map: dict, img_map: dict, conn: BlitzGateway):
     for ds in ome.datasets:
-        ds_id = ds_map[ds.id]
+        ds_id = obj_map[ds.id]
         img_ids = []
         for img in ds.image_refs:
             try:
@@ -658,55 +666,115 @@ def link_images(ome: OME, ds_map: dict, img_map: dict, conn: BlitzGateway):
     return
 
 
-def link_annotations(ome: OME, proj_map: dict, ds_map: dict, img_map: dict,
-                     ann_map: dict, scr_map: dict, pl_map: dict,
-                     conn: BlitzGateway):
+def link_annotations(ome: OME, obj_map: dict, img_map: dict, conn: BlitzGateway):
     for proj in ome.projects:
-        proj_id = proj_map[proj.id]
+        proj_id = obj_map[proj.id]
         proj_obj = conn.getObject("Project", proj_id)
         for annref in proj.annotation_refs:
-            link_one_annotation(proj_obj, annref.ref, ann_map, conn)
+            link_one_annotation(proj_obj, annref.ref, obj_map, conn)
     for ds in ome.datasets:
-        ds_id = ds_map[ds.id]
+        ds_id = obj_map[ds.id]
         ds_obj = conn.getObject("Dataset", ds_id)
         for annref in ds.annotation_refs:
-            link_one_annotation(ds_obj, annref.ref, ann_map, conn)
+            link_one_annotation(ds_obj, annref.ref, obj_map, conn)
     for img in ome.images:
         try:
             img_id = img_map[img.id]
             img_obj = conn.getObject("Image", img_id)
             for annref in img.annotation_refs:
-                link_one_annotation(img_obj, annref.ref, ann_map, conn)
+                link_one_annotation(img_obj, annref.ref, obj_map, conn)
         except KeyError:
             continue
     for scr in ome.screens:
-        scr_id = scr_map[scr.id]
+        scr_id = obj_map[scr.id]
         scr_obj = conn.getObject("Screen", scr_id)
         for annref in scr.annotation_refs:
-            link_one_annotation(scr_obj, annref.ref, ann_map, conn)
+            link_one_annotation(scr_obj, annref.ref, obj_map, conn)
     for pl in ome.plates:
-        pl_id = pl_map[pl.id]
+        pl_id = obj_map[pl.id]
         pl_obj = conn.getObject("Plate", pl_id)
         for annref in pl.annotation_refs:
-            link_one_annotation(pl_obj, annref.ref, ann_map, conn)
+            link_one_annotation(pl_obj, annref.ref, obj_map, conn)
         for well in pl.wells:
             if len(well.annotation_refs) > 0:
                 row, col = well.row, well.column
                 well_id = ezomero.get_well_id(conn, pl_id, row, col)
                 well_obj = conn.getObject("Well", well_id)
                 for annref in well.annotation_refs:
-                    link_one_annotation(well_obj, annref.ref, ann_map, conn)
+                    link_one_annotation(well_obj, annref.ref, obj_map, conn)
     return
 
 
-def link_one_annotation(obj: IObject, ann: Annotation, ann_map: dict,
+def link_one_annotation(obj: IObject, ann: Annotation, obj_map: dict,
                         conn: BlitzGateway):
-    ann_id = ann_map[ann.id]
+    ann_id = obj_map[ann.id]
     ann_obj = conn.getObject("Annotation", ann_id)
     if ann_obj:
         if isinstance(obj, IObject):
             ann_obj = ann_obj._obj
+        else:
+            if ann_obj in obj.listAnnotations():
+                return
         obj.linkAnnotation(ann_obj)
+
+
+def omexml_id_to_int(xml_id):
+    return int(xml_id.split(":")[-1])
+
+
+def find_existing_objects(ome: OME, img_map: dict, conn: BlitzGateway):
+    """Return map of objects that were already created by image import.
+
+    Image file import may create a number of objects like ROIs and Annotations
+    that also exist in the transfer xml file. This function finds these
+    redundant objects and returns a dict that maps their old ids to new ids.
+
+    """
+    ome_imported = OME()
+    for imported_img_id in img_map.values():
+        img = conn.getObject("Image", imported_img_id)
+        generate_xml.populate_image(img, ome_imported, conn, "", [], False)
+    import_map = {}
+    for roi in ome_imported.rois:
+        imported_roi_id = roi.id
+        roi.id = 0
+        roi.annotation_refs = []
+        for shape in roi.union:
+            shape.id = 0
+            shape.annotation_refs = []
+        import_map[to_xml(roi, exclude_defaults=True)] = omexml_id_to_int(
+            imported_roi_id
+        )
+    for ann in ome_imported.structured_annotations:
+        imported_ann_id = ann.id
+        ann.id = 0
+        ann.annotation_refs = []
+        import_map[to_xml(ann, exclude_defaults=True)] = omexml_id_to_int(
+            imported_ann_id
+        )
+
+    obj_map = {}
+    for roi in ome.rois:
+        roi = copy.deepcopy(roi)
+        roi_id = roi.id
+        roi.id = 0
+        roi.annotation_refs = []
+        for shape in roi.union:
+            shape.id = 0
+            shape.annotation_refs = []
+        roi_xml = to_xml(roi, exclude_defaults=True)
+        if roi_xml in import_map:
+            obj_map[roi_id] = import_map[roi_xml]
+    for ann in ome.structured_annotations:
+        ann = copy.deepcopy(ann)
+        ann_id = ann.id
+        ann.id = 0
+        ann.annotation_refs = []
+        ann_xml = to_xml(ann, exclude_defaults=True)
+        if ann_xml in import_map:
+            obj_map[ann_id] = import_map[ann_xml]
+
+    return obj_map
 
 
 def apply_pvcs(im_obj, pvcs, conn):
@@ -807,6 +875,7 @@ def rename_plates(pls: List[Plate], pl_map: dict, conn: BlitzGateway):
 def populate_omero(ome: OME, img_map: dict, conn: BlitzGateway, hash: str,
                    folder: str, metadata: List[str], merge: bool,
                    figure: bool):
+    obj_map = find_existing_objects(ome, img_map, conn)
     plate_map, ome = create_plate_map(ome, img_map, conn)
     apply_image_settings(ome, img_map, conn)
     rename_images(ome.images, img_map, conn)
@@ -814,12 +883,13 @@ def populate_omero(ome: OME, img_map: dict, conn: BlitzGateway, hash: str,
     proj_map = create_or_set_projects(ome.projects, conn, merge)
     ds_map = create_or_set_datasets(ome.datasets, ome.projects, conn, merge)
     screen_map = create_or_set_screens(ome.screens, conn, merge)
-    ann_map = create_annotations(ome.structured_annotations, conn,
-                                 hash, folder, figure, img_map, metadata)
-    create_rois(ome.rois, ome.images, img_map, ann_map, conn)
-    link_plates(ome, screen_map, plate_map, conn)
-    link_datasets(ome, proj_map, ds_map, conn)
-    link_images(ome, ds_map, img_map, conn)
-    link_annotations(ome, proj_map, ds_map, img_map, ann_map,
-                     screen_map, plate_map, conn)
+    ann_map = create_annotations(ome.structured_annotations, conn, hash, folder,
+                                 figure, obj_map, img_map, metadata)
+    for m in plate_map, proj_map, ds_map, screen_map, ann_map:
+        obj_map.update(m)
+    create_rois(ome.rois, ome.images, obj_map, img_map, conn)
+    link_plates(ome, obj_map, conn)
+    link_datasets(ome, obj_map, conn)
+    link_images(ome, obj_map, img_map, conn)
+    link_annotations(ome, obj_map, img_map, conn)
     return
