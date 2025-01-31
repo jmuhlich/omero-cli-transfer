@@ -843,6 +843,8 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
                    ann: Annotation, ome: OME, conn: BlitzGateway):
     if ann.OMERO_TYPE == TagAnnotationI:
         tag, ref = create_tag_and_ref(id=ann.getId(),
+                                      namespace=ann.getNs(),
+                                      description=ann.getDescription(),
                                       value=ann.getTextValue())
         if tag.id not in [i.id for i in ome.structured_annotations]:
             ome.structured_annotations.append(tag)
@@ -857,6 +859,7 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
                 mmap.append(M(k=_key, value=''))
         kv, ref = create_kv_and_ref(id=ann.getId(),
                                     namespace=ann.getNs(),
+                                    description=ann.getDescription(),
                                     value=Map(
                                     ms=mmap))
         if kv.id not in [i.id for i in ome.structured_annotations]:
@@ -865,6 +868,8 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
 
     elif ann.OMERO_TYPE == CommentAnnotationI:
         comm, ref = create_comm_and_ref(id=ann.getId(),
+                                        namespace=ann.getNs(),
+                                        description=ann.getDescription(),
                                         value=ann.getTextValue())
         if comm.id not in [i.id for i in ome.structured_annotations]:
             ome.structured_annotations.append(comm)
@@ -872,6 +877,8 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
 
     elif ann.OMERO_TYPE == TimestampAnnotationI:
         ts, ref = create_ts_and_ref(id=ann.getId(),
+                                    namespace=ann.getNs(),
+                                    description=ann.getDescription(),
                                     value=ann.getValue().isoformat())
         if ts.id not in [i.id for i in ome.structured_annotations]:
             ome.structured_annotations.append(ts)
@@ -880,6 +887,7 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
     elif ann.OMERO_TYPE == LongAnnotationI:
         long, ref = create_long_and_ref(id=ann.getId(),
                                         namespace=ann.getNs(),
+                                        description=ann.getDescription(),
                                         value=ann.getValue())
         if long.id not in [i.id for i in ome.structured_annotations]:
             ome.structured_annotations.append(long)
@@ -899,6 +907,7 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
                                 )
         f, ref = create_file_ann_and_ref(id=ann.getId(),
                                          namespace=ann.getNs(),
+                                         description=ann.getDescription(),
                                          binary_file=binaryfile)
         filepath_anns, refs = create_filepath_annotations(
                                 f.id,
@@ -915,6 +924,7 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
     elif ann.OMERO_TYPE == XmlAnnotationI:
         xml, ref = create_xml_and_ref(id=ann.getId(),
                                       namespace=ann.getNs(),
+                                      description=ann.getDescription(),
                                       value=ann.getTextValue())
         if xml.id not in [i.id for i in ome.structured_annotations]:
             ome.structured_annotations.append(xml)
@@ -1073,6 +1083,7 @@ def populate_figures(ome: OME, conn: BlitzGateway, filepath: str):
                                     )
             f, _ = create_file_ann_and_ref(id=fig_obj.getId(),
                                            namespace=fig_obj.getNs(),
+                                           description=fig_obj.getDescription(),
                                            binary_file=binaryfile)
             filepath_ann, ref = create_figure_annotations(f.id)
             ome.structured_annotations.append(filepath_ann)

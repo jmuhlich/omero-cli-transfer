@@ -177,22 +177,24 @@ def create_annotations(ans: List[Annotation], conn: BlitzGateway, hash: str,
             tag_ann = TagAnnotationWrapper(conn)
             tag_ann.setValue(an.value)
             tag_ann.setDescription(an.description)
+            tag_ann.setNs(an.namespace)
             tag_ann.save()
             ann_map[an.id] = tag_ann.getId()
         elif isinstance(an, MapAnnotation):
             map_ann = MapAnnotationWrapper(conn)
-            namespace = an.namespace
-            map_ann.setNs(namespace)
             key_value_data = []
             for v in an.value.ms:
                 key_value_data.append([v.k, v.value])
             map_ann.setValue(key_value_data)
+            map_ann.setDescription(an.description)
+            map_ann.setNs(an.namespace)
             map_ann.save()
             ann_map[an.id] = map_ann.getId()
         elif isinstance(an, CommentAnnotation):
             comm_ann = CommentAnnotationWrapper(conn)
             comm_ann.setValue(an.value)
             comm_ann.setDescription(an.description)
+            comm_ann.setNs(an.namespace)
             comm_ann.save()
             ann_map[an.id] = comm_ann.getId()
         elif isinstance(an, TimestampAnnotation):
@@ -247,6 +249,7 @@ def create_annotations(ans: List[Annotation], conn: BlitzGateway, hash: str,
                 xml_ann = XmlAnnotationWrapper(conn)
                 xml_ann.setValue(get_xmlannotation_value(an))
                 xml_ann.setDescription(an.description)
+                xml_ann.setNs(an.namespace)
                 xml_ann.save()
                 ann_map[an.id] = xml_ann.getId()
     return ann_map
