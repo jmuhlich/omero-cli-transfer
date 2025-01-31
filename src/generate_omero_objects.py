@@ -361,7 +361,10 @@ def create_original_file(ann: FileAnnotation, ans: List[Annotation],
     curr_folder = str(Path('.').resolve())
     fpath = get_server_path(ann.annotation_refs, ans)
     dest_path = str(os.path.join(curr_folder, folder,  '.', fpath))
-    ofile = conn.createOriginalFileFromLocalFile(dest_path)
+    ofile = conn.createOriginalFileFromLocalFile(dest_path, "")
+    ofile.setMimetype(rstring(ann.binary_file.mime_type))
+    ofile.setName(rstring(ann.binary_file.file_name))
+    ofile.save()
     return ofile
 
 

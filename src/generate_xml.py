@@ -900,6 +900,7 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
         fpath = os.path.join(ann.getFile().getPath(), ann.getFile().getName())
         binaryfile = BinaryFile(file_name=fpath,
                                 size=ann.getFile().getSize(),
+                                mime_type=ann.getFile().getMimetype(),
                                 bin_data=BinData(big_endian=True,
                                                  length=length,
                                                  value=b64
@@ -1076,6 +1077,7 @@ def populate_figures(ome: OME, conn: BlitzGateway, filepath: str):
                                  fig_obj.getFile().getName())
             binaryfile = BinaryFile(file_name=fpath,
                                     size=fig_obj.getFile().getSize(),
+                                    mime_type=fig_obj.getFile().getMimetype(),
                                     bin_data=BinData(big_endian=True,
                                                      length=length,
                                                      value=b64
