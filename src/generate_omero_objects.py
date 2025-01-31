@@ -216,7 +216,7 @@ def create_annotations(ans: List[Annotation], conn: BlitzGateway, hash: str,
                 if not figure:
                     continue
                 else:
-                    update_figure_refs(an, ans, img_map, folder)
+                    an = update_figure_refs(an, ans, img_map, folder)
             original_file = create_original_file(an, ans, conn, folder)
             file_ann = FileAnnotationWrapper(conn)
             file_ann.setDescription(an.description)
@@ -350,9 +350,18 @@ def update_figure_refs(ann: FileAnnotation, ans: List[Annotation],
                 src_str = f"\"imageId\": {fig.group(1)},"
                 dest_str = f"\"imageId\": {str(-1)},"
                 filedata = filedata.replace(src_str, dest_str)
+        desc = json.loads(ann.description)
+        dest_id = img_map.get(f"Image:{desc['imageId']}")
+        if dest_id:
+            desc["imageId"] = dest_id
+            ann = copy.deepcopy(ann)
+            ann.description = json.dumps(desc)
+        # FIXME: This should write to a temp file rather than modify the
+        # original.  Or, we could write to a BytesIO in memory and use that with
+        # createOriginalFileFromFileObj below instead of ...FromLocalFile.
         with open(dest_path, 'w') as file:
             file.write(filedata)
-    return
+    return ann
 
 
 def create_original_file(ann: FileAnnotation, ans: List[Annotation],

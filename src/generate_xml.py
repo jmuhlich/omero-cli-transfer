@@ -389,8 +389,8 @@ def create_filepath_annotations(id: str, conn: BlitzGateway,
 
 def create_figure_annotations(id: str) -> Tuple[XMLAnnotation,
                                                 AnnotationRef]:
-    ns = id
-    clean_id = int(ns.split(":")[-1])
+    ns = "openmicroscopy.org/cli/transfer"
+    clean_id = int(id.split(":")[-1])
     f = f'figures/Figure_{clean_id}.json'
     xml = create_path_xml(str(f))
     an, anref = create_xml_and_ref(namespace=ns, value=xml)
