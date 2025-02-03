@@ -367,9 +367,8 @@ def update_figure_refs(ann: FileAnnotation, ans: List[Annotation],
 def create_original_file(ann: FileAnnotation, ans: List[Annotation],
                          conn: BlitzGateway, folder: str
                          ) -> OriginalFileWrapper:
-    curr_folder = str(Path('.').resolve())
     fpath = get_server_path(ann.annotation_refs, ans)
-    dest_path = str(os.path.join(curr_folder, folder,  '.', fpath))
+    dest_path = str((Path(folder) / fpath).resolve())
     ofile = conn.createOriginalFileFromLocalFile(dest_path, "")
     ofile.setMimetype(rstring(ann.binary_file.mime_type))
     ofile.setName(rstring(ann.binary_file.file_name))

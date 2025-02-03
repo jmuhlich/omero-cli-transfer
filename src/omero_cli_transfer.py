@@ -687,9 +687,10 @@ class TransferControl(GraphControl):
         cli = CLI()
         cli.loadplugins()
         dest_map = {}
-        curr_folder = str(Path('.').resolve())
         for filepath in filelist:
-            dest_path = str(os.path.join(curr_folder, folder,  '.', filepath))
+            # Use absolute path with symlinks resolved so the clientpath
+            # recorded on the server contains as much information as possible.
+            dest_path = str((Path(folder) / filepath).resolve())
             command = ['import', dest_path]
             if ln_s:
                 command.append('--transfer=ln_s')
