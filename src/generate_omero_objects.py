@@ -792,14 +792,16 @@ def find_existing_objects(ome: OME, img_map: dict, conn: BlitzGateway):
     return obj_map
 
 
-def apply_pvcs(im_obj, pvcs, conn):
+def apply_pvcs(im_obj, pvcs_anns, conn):
     """Apply PathViewer channel settings to im_obj."""
-    comm_ann = CommentAnnotationWrapper(conn)
-    comm_ann.setNs("glencoesoftware.com/pathviewer/channel/settings")
-    comm_ann.setValue(pvcs)
-    comm_ann.save()
     channel0 = im_obj.getChannels()[0]
-    channel0.linkAnnotation(comm_ann)
+    for ann in pvcs_anns:
+        comm_ann = CommentAnnotationWrapper(conn)
+        comm_ann.setNs("glencoesoftware.com/pathviewer/channel/settings")
+        comm_ann.setDescription(ann.description)
+        comm_ann.setValue(ann.value)
+        comm_ann.save()
+        channel0.linkAnnotation(comm_ann)
 
 
 def apply_rdef(im_obj, rdef, conn):
@@ -830,24 +832,44 @@ def apply_rdef(im_obj, rdef, conn):
     conn.setChannelNames("Image", [im_obj.id], names)
 
 
-def pop_annotation(ome: OME, obj: OMEType, namespace: str):
-    """Remove and return obj's first annotation matching the given namespace
+def gen_pop_annotations(ome: OME, obj: OMEType, namespace: str):
+    """Generate annotations matching the given namespace removed from obj
 
-    Removes the annotation reference from obj and also removes the annotation
-    itself from ome's list of annotations.
+    Removes the annotation references from obj and also removes the annotations
+    themselves from ome's list of annotations.
 
     """
     if not hasattr(obj, "annotation_refs"):
         raise ValueError("obj does not have an annotation_refs attribute")
-    for r in obj.annotation_refs:
+    # Iterate over a copy so we can mutate the underlying ref list.
+    for r in copy.copy(obj.annotation_refs):
         if r.ref.namespace == namespace:
             # Avoid early gc of weakly-referenced annotation object.
             ann = r.ref
             ome.structured_annotations.remove(ann)
             obj.annotation_refs.remove(r)
-            return ann
-    else:
+            yield ann
+
+
+def pop_first_annotation(ome: OME, obj: OMEType, namespace: str):
+    """Remove and return obj's first annotation matching the given namespace
+
+    See gen_pop_annotations for details.
+
+    """
+    try:
+        return next(gen_pop_annotations(ome, obj, namespace))
+    except StopIteration:
         return None
+
+
+def pop_annotations(ome: OME, obj: OMEType, namespace: str):
+    """Remove and return all obj's annotation matching the given namespace
+
+    See gen_pop_annotations for details.
+
+    """
+    return list(gen_pop_annotations(ome, obj, namespace))
 
 
 def apply_image_settings(ome: OME, img_map: dict, conn: BlitzGateway):
@@ -857,10 +879,15 @@ def apply_image_settings(ome: OME, img_map: dict, conn: BlitzGateway):
             print(f"Image corresponding to {img.id} not found. Skipping.")
             continue
         im_obj = conn.getObject("Image", img_id)
-        pvcs_ann = pop_annotation(ome, img, "openmicroscopy.org/cli/transfer/pathviewer-channel-settings")
-        rdef_ann = pop_annotation(ome, img, "openmicroscopy.org/cli/transfer/renderingdef")
-        apply_pvcs(im_obj, pvcs_ann.value, conn)
-        apply_rdef(im_obj, rdef_ann.value, conn)
+        pvcs_anns = pop_annotations(
+            ome, img, "openmicroscopy.org/cli/transfer/pathviewer-channel-settings"
+        )
+        apply_pvcs(im_obj, pvcs_anns, conn)
+        rdef_ann = pop_first_annotation(
+            ome, img, "openmicroscopy.org/cli/transfer/renderingdef"
+        )
+        if rdef_ann:
+            apply_rdef(im_obj, rdef_ann.value, conn)
 
 
 def rename_images(imgs: List[Image], img_map: dict, conn: BlitzGateway):

@@ -101,7 +101,10 @@ def create_pixels(obj: ImageI) -> Pixels:
 
 
 def create_rdef_annotation(img: ImageI) -> Tuple[CommentAnnotation, AnnotationRef]:
-    rdef = img.getAllRenderingDefs(img.getOwner().id)[0]
+    rdefs = img.getAllRenderingDefs(img.getOwner().id)
+    if not rdefs:
+        return None, None
+    rdef = rdefs[0]
     for channel, label in zip(rdef["c"], img.getChannelLabels()):
         channel["label"] = label
     ann, annref = create_comm_and_ref(
@@ -111,16 +114,18 @@ def create_rdef_annotation(img: ImageI) -> Tuple[CommentAnnotation, AnnotationRe
     return ann, annref
 
 
-def create_pvcs_annotation(img: ImageI) -> Union[Tuple[CommentAnnotation, AnnotationRef], Tuple[None, None]]:
+def create_pvcs_annotations(img: ImageI) -> Union[Tuple[CommentAnnotation, AnnotationRef], Tuple[None, None]]:
     channel = next(iter(img.getChannels(noRE=True)))
+    annotations = []
     for a in channel.listAnnotations():
         if a.getNs() in ("glencoesoftware.com/pathviewer/channel/settings", "pathviewer"):
             ann, annref = create_comm_and_ref(
                 namespace="openmicroscopy.org/cli/transfer/pathviewer-channel-settings",
+                description=a.getDescription(),
                 value=a.getValue()
             )
-            return ann, annref
-    return None, None
+            annotations.append((ann, annref))
+    return annotations
 
 def create_image_and_ref(**kwargs) -> Tuple[Image, ImageRef]:
     img = Image(**kwargs)
@@ -679,16 +684,17 @@ def populate_image(obj: ImageI, ome: OME, conn: BlitzGateway, hostname: str,
     for ann in obj.listAnnotations():
         add_annotation(img, ann, ome, conn)
     rdef_ann, rdef_ref = create_rdef_annotation(obj)
-    ome.structured_annotations.append(rdef_ann)
-    img.annotation_refs.append(rdef_ref)
-    pvcs_ann, pvcs_ref = create_pvcs_annotation(obj)
-    if pvcs_ann:
-        ome.structured_annotations.append(pvcs_ann)
-        # This annotation actually belongs on the first Channel of the
+    if rdef_ann:
+        ome.structured_annotations.append(rdef_ann)
+        img.annotation_refs.append(rdef_ref)
+    pvcs_annotations = create_pvcs_annotations(obj)
+    for ann, ref in pvcs_annotations:
+        # These annotations actually belong on the first Channel of the
         # Image.Pixels object, but we don't want to reproduce the complex
-        # Channel structures here. We'll attach it to the Image in the transfer
-        # dump here and be sure to put it in the right place during unpack.
-        img.annotation_refs.append(pvcs_ref)
+        # Channel structures here. We'll attach them to the Image here and move
+        # them back to the right place during unpack.
+        ome.structured_annotations.append(ann)
+        img.annotation_refs.append(ref)
     kv, ref = create_provenance_metadata(conn, id, hostname, metadata, False)
     if kv:
         kv_id = f"Annotation:{str(kv.id)}"
