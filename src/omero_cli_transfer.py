@@ -16,11 +16,13 @@ import os
 import copy
 from functools import wraps
 import shutil
+import tempfile
 from typing import DefaultDict
 import hashlib
 from zipfile import ZipFile
 from typing import Callable, List, Any, Dict, Union, Optional, Tuple
 import xml.etree.cElementTree as ETree
+import yaml
 
 from generate_xml import populate_xml, populate_tsv, populate_rocrate
 from generate_xml import populate_xml_folder
@@ -602,14 +604,14 @@ class TransferControl(GraphControl):
             ome = from_xml(folder / "transfer.xml")
             hash = "imported from folder"
         print("Generating Image mapping and import filelist...")
-        ome, src_img_map, filelist = self._create_image_map(ome)
+        ome, src_img_map, filelist = self._create_image_map(ome, folder)
         print("Importing data as orphans...")
         if args.ln_s_import:
             ln_s = True
         else:
             ln_s = False
-        dest_img_map = self._import_files(folder, filelist,
-                                          ln_s, args.skip, self.gateway)
+        dest_img_map = self._import_files(filelist, ln_s, args.skip,
+                                          self.gateway)
         print("Matching source and destination images...")
         img_map = self._make_image_map(src_img_map, dest_img_map, self.gateway)
         print("Creating and linking OMERO objects...")
@@ -650,7 +652,7 @@ class TransferControl(GraphControl):
         ome = from_xml(folder / "transfer.xml")
         return hash, ome, folder
 
-    def _create_image_map(self, ome: OME
+    def _create_image_map(self, ome: OME, folder: str
                           ) -> Tuple[OME, DefaultDict, List[str]]:
         if not (isinstance(ome, OME)):
             raise TypeError("XML is not valid OME format")
@@ -659,9 +661,11 @@ class TransferControl(GraphControl):
         #newome = copy.deepcopy(ome)
         newome = OME(**ome.dict())
         map_ref_ids = []
+        folder = Path(folder)
         for img in newome.images:
             fpath = get_server_path(img.annotation_refs,
                                     ome.structured_annotations)
+            fpath = str((folder / fpath).resolve())
             img_map[fpath].append(int(img.id.split(":")[-1]))
             # use XML path annotation instead
             if fpath.endswith('mock_folder'):
@@ -682,63 +686,27 @@ class TransferControl(GraphControl):
                               for x in img_map.keys()})
         return newome, img_map, filelist
 
-    def _import_files(self, folder: Path, filelist: List[str], ln_s: bool,
-                      skip: str, gateway: BlitzGateway) -> dict:
+    def _import_files(self, filelist: List[str], ln_s: bool, skip: str,
+                      gateway: BlitzGateway) -> dict:
         cli = CLI()
         cli.loadplugins()
         dest_map = {}
         for filepath in filelist:
             # Use absolute path with symlinks resolved so the clientpath
             # recorded on the server contains as much information as possible.
-            dest_path = str((Path(folder) / filepath).resolve())
-            command = ['import', dest_path]
+            stdout_file = tempfile.NamedTemporaryFile(mode="r")
+            command = [
+                'import', filepath, '--file', stdout_file.name, '--output', 'yaml'
+            ]
             if ln_s:
                 command.append('--transfer=ln_s')
             if skip:
                 command.extend(['--skip', skip])
             cli.invoke(command)
-            img_ids = self._get_image_ids(dest_path, gateway)
-            dest_map[dest_path] = img_ids
+            import_result = yaml.safe_load(stdout_file)
+            stdout_file.close()
+            dest_map[filepath] = import_result[0]["Image"]
         return dest_map
-
-    def _get_image_ids(self, file_path: str, conn: BlitzGateway) -> List[str]:
-        """Get the Ids of imported images.
-        Note that this will not find images if they have not been imported.
-
-        Returns
-        -------
-        image_ids : list of ints
-            Ids of images imported from the specified client path, which
-            itself is derived from ``file_path``.
-        """
-        q = conn.getQueryService()
-        params = Parameters()
-        path_query = str(file_path).strip('/')
-        params.map = {"cpath": rstring('%s%%' % path_query)}
-        results = q.projection(
-            "SELECT i.id FROM Image i"
-            " JOIN i.fileset fs"
-            " JOIN fs.usedFiles u"
-            " WHERE u.clientPath LIKE :cpath",
-            params,
-            conn.SERVICE_OPTS
-            )
-        all_image_ids = list(set(sorted([r[0].val for r in results])))
-        image_ids = []
-        for img_id in all_image_ids:
-            anns = ezomero.get_map_annotation_ids(conn, "Image", img_id)
-            if not anns:
-                image_ids.append(img_id)
-            else:
-                is_annotated = False
-                for ann in anns:
-                    ann_content = conn.getObject("MapAnnotation", ann)
-                    if ann_content.getNs() == \
-                            'openmicroscopy.org/cli/transfer':
-                        is_annotated = True
-                if not is_annotated:
-                    image_ids.append(img_id)
-        return image_ids
 
     def _make_image_map(self, source_map: dict, dest_map: dict,
                         conn: Optional[BlitzGateway] = None) -> dict:
