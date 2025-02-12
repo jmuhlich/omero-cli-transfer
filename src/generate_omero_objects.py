@@ -558,12 +558,12 @@ def create_shape(shape: Shape) -> OShape:
     if shape.fill_color:
         sh.fillColor = rint(shape.fill_color)
     if shape.fill_rule:
-        sh.fillRule = rstring(shape.fill_rule)
+        sh.fillRule = rstring(shape.fill_rule.value)
     # fontFamily is deprecated.
     if shape.font_size:
         sh.fontSize = quantity_to_length(shape.font_size_quantity)
     if shape.font_style:
-        sh.fontStyle = rstring(shape.font_style)
+        sh.fontStyle = rstring(shape.font_style.value)
     if sh.locked is not None:
         sh.locked = rbool(shape.locked)
     if shape.stroke_color:
