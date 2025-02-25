@@ -704,6 +704,9 @@ class TransferControl(GraphControl):
                 command.extend(['--skip', skip])
             cli.invoke(command)
             import_result = yaml.safe_load(stdout_file)
+            # Re-emit captured stdout content so it's also in the output log.
+            stdout_file.seek(0)
+            print(stdout_file.read())
             stdout_file.close()
             dest_map[filepath] = import_result[0]["Image"]
         return dest_map
