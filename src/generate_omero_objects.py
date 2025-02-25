@@ -334,6 +334,7 @@ def get_server_path(anrefs: List[AnnotationRef],
 
 def update_figure_refs(ann: FileAnnotation, ans: List[Annotation],
                        img_map: dict, folder: str):
+    ann = copy.deepcopy(ann)
     curr_folder = str(Path('.').resolve())
     fpath = get_server_path(ann.annotation_refs, ans)
     if fpath:
@@ -354,24 +355,31 @@ def update_figure_refs(ann: FileAnnotation, ans: List[Annotation],
         dest_id = img_map.get(f"Image:{desc['imageId']}")
         if dest_id:
             desc["imageId"] = dest_id
-            ann = copy.deepcopy(ann)
             ann.description = json.dumps(desc)
-        # FIXME: This should write to a temp file rather than modify the
-        # original.  Or, we could write to a BytesIO in memory and use that with
-        # createOriginalFileFromFileObj below instead of ...FromLocalFile.
-        with open(dest_path, 'w') as file:
-            file.write(filedata)
+        ann.binary_file.bin_data.value = filedata.encode("utf-8")
+        ann.binary_file.bin_data.length = len(filedata)
     return ann
 
 
 def create_original_file(ann: FileAnnotation, ans: List[Annotation],
                          conn: BlitzGateway, folder: str
                          ) -> OriginalFileWrapper:
-    fpath = get_server_path(ann.annotation_refs, ans)
-    dest_path = str((Path(folder) / fpath).resolve())
-    ofile = conn.createOriginalFileFromLocalFile(dest_path, "")
+    # If FileAnnotation contains literal content (could only be injected by
+    # other code of ours in the unpack process as the pack process always leaves
+    # the content empty), send that as the new file's content. Otherwise upload
+    # the local file from the pack folder.
+    if ann.binary_file.bin_data.length:
+        bf = ann.binary_file
+        f = io.BytesIO(bf.bin_data.value)
+        ofile = conn.createOriginalFileFromFileObj(
+            f, "", bf.file_name, bf.bin_data.length
+        )
+    else:
+        fpath = get_server_path(ann.annotation_refs, ans)
+        dest_path = str((Path(folder) / fpath).resolve())
+        ofile = conn.createOriginalFileFromLocalFile(dest_path, "")
+        ofile.setName(rstring(ann.binary_file.file_name))
     ofile.setMimetype(rstring(ann.binary_file.mime_type))
-    ofile.setName(rstring(ann.binary_file.file_name))
     ofile.save()
     return ofile
 
