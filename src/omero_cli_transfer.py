@@ -28,11 +28,8 @@ from generate_xml import populate_xml, populate_tsv, populate_rocrate
 from generate_xml import populate_xml_folder
 from generate_omero_objects import populate_omero, get_server_path
 
-import ezomero
 from ome_types.model import XMLAnnotation, OME
 from ome_types import from_xml, to_xml
-from omero.sys import Parameters
-from omero.rtypes import rstring
 from omero.cli import CLI, GraphControl, GraphArg
 from omero.cli import NonZeroReturnCode
 from omero.gateway import BlitzGateway
@@ -261,8 +258,9 @@ class TransferControl(GraphControl):
             help="With `--binaries none`, only generate the metadata file "
                  "(transfer.xml or ro-crate-metadata.json). "
                  "With `--binaries all` (the default), both pixel data "
-                 "and annotation are saved. With `--binaries all-except-images`, "
-                 "file annotaions are saved but pixel data is not.")
+                 "and annotation are saved. With `--binaries "
+                 "all-except-images`, file annotaions are saved but pixel "
+                 "data is not.")
 
         file_help = ("Path to where the zip file is saved")
         unpack.add_argument("filepath", type=str, help=file_help)
@@ -658,9 +656,8 @@ class TransferControl(GraphControl):
             raise TypeError("XML is not valid OME format")
         img_map = DefaultDict(list)
         filelist = []
-        #newome = copy.deepcopy(ome)
+        # newome = copy.deepcopy(ome)
         newome = OME(**ome.dict())
-        map_ref_ids = []
         folder = Path(folder)
         for img in newome.images:
             fpath = get_server_path(img.annotation_refs,
@@ -672,13 +669,18 @@ class TransferControl(GraphControl):
                 filelist.append(fpath.rstrip("mock_folder"))
             else:
                 filelist.append(fpath)
-            # Copy refs with list() so we can modify the original while iterating.
+            # Copy refs with list() so we can modify while iterating.
             for anref in list(img.annotation_refs):
                 an = anref.ref
                 if isinstance(an, XMLAnnotation):
-                    tree = ETree.fromstring(to_xml(an.value, canonicalize=True))
+                    tree = ETree.fromstring(
+                        to_xml(an.value, canonicalize=True)
+                    )
                     for el in tree:
-                        if el.tag.rpartition('}')[2] == "CLITransferServerPath":
+                        if (
+                            el.tag.rpartition('}')[2]
+                            == "CLITransferServerPath"
+                        ):
                             img.annotation_refs.remove(anref)
                             newome.structured_annotations.remove(an)
         filelist = list(set(filelist))
@@ -696,7 +698,8 @@ class TransferControl(GraphControl):
             # recorded on the server contains as much information as possible.
             stdout_file = tempfile.NamedTemporaryFile(mode="r")
             command = [
-                'import', filepath, '--file', stdout_file.name, '--output', 'yaml'
+                'import', filepath, '--file', stdout_file.name,
+                '--output', 'yaml',
             ]
             if ln_s:
                 command.append('--transfer=ln_s')

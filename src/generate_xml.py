@@ -26,7 +26,8 @@ from omero.model import TagAnnotationI, MapAnnotationI, FileAnnotationI
 from omero.model import CommentAnnotationI, LongAnnotationI, Fileset
 from omero.model import XmlAnnotationI, TimestampAnnotationI
 from omero.model import PointI, LineI, RectangleI, EllipseI, PolygonI
-from omero.model import PolylineI, LabelI, Shape as OShape, ImageI, RoiI, IObject
+from omero.model import PolylineI, LabelI, Shape as OShape, ImageI, RoiI
+from omero.model import IObject
 from omero.model import DatasetI, ProjectI, ScreenI, PlateI, WellI, Annotation
 from omero.cli import CLI
 from typing import Tuple, List, Optional, Union, Any, Dict, TextIO
@@ -100,7 +101,9 @@ def create_pixels(obj: ImageI) -> Pixels:
     return pixels
 
 
-def create_rdef_annotation(img: ImageI) -> Tuple[CommentAnnotation, AnnotationRef]:
+def create_rdef_annotation(
+    img: ImageI
+) -> Tuple[CommentAnnotation, AnnotationRef]:
     rdefs = img.getAllRenderingDefs(img.getOwner().id)
     if not rdefs:
         return None, None
@@ -114,18 +117,23 @@ def create_rdef_annotation(img: ImageI) -> Tuple[CommentAnnotation, AnnotationRe
     return ann, annref
 
 
-def create_pvcs_annotations(img: ImageI) -> Union[Tuple[CommentAnnotation, AnnotationRef], Tuple[None, None]]:
+def create_pvcs_annotations(
+    img: ImageI
+) -> Union[Tuple[CommentAnnotation, AnnotationRef], Tuple[None, None]]:
     channel = next(iter(img.getChannels(noRE=True)))
     annotations = []
+    nss = ("glencoesoftware.com/pathviewer/channel/settings", "pathviewer")
+    ann_ns = "openmicroscopy.org/cli/transfer/pathviewer-channel-settings"
     for a in channel.listAnnotations():
-        if a.getNs() in ("glencoesoftware.com/pathviewer/channel/settings", "pathviewer"):
+        if a.getNs() in nss:
             ann, annref = create_comm_and_ref(
-                namespace="openmicroscopy.org/cli/transfer/pathviewer-channel-settings",
+                namespace=ann_ns,
                 description=a.getDescription(),
                 value=a.getValue()
             )
             annotations.append((ann, annref))
     return annotations
+
 
 def create_image_and_ref(**kwargs) -> Tuple[Image, ImageRef]:
     img = Image(**kwargs)
@@ -255,13 +263,16 @@ def get_shape_args(shape: OShape) -> Dict:
     if shape.getFillColor() is not None:
         args['fill_color'] = shape.getFillColor().val
     if shape.getFillRule() is not None:
-        # I'm not sure anyone even uses this feature, so we'll check for the two
-        # values I've seen in the wild and complain otherwise. We won't actually
-        # copy the value into the output args unless we can get better data to
-        # act on.
+        # I'm not sure anyone even uses this feature, so we'll check for the
+        # two values I've seen in the wild and complain otherwise. We won't
+        # actually copy the value into the output args unless we can get better
+        # data to act on.
         fill_rule = shape.getFillRule().val
         if fill_rule not in ('NonZero', 'solid'):
-            print(f"WARNING: Unexpected fillRule '{fill_rule}' for shape {shape.id}")
+            print(
+                f"WARNING: Unexpected fillRule '{fill_rule}' for shape"
+                f" {shape.id}"
+            )
     if shape.getFontSize() is not None:
         fs = shape.getFontSize()
         args['font_size'] = fs.getValue()
@@ -938,7 +949,9 @@ def add_annotation(obj: Union[Project, Dataset, Image, Plate, Screen,
         obj.annotation_ref.append(ref)
 
     else:
-        raise ValueError(f"Unhandled annotation type: {ann.OMERO_TYPE.__name__}")
+        raise ValueError(
+            f"Unhandled annotation type: {ann.OMERO_TYPE.__name__}"
+        )
 
 
 def list_file_ids(ome: OME) -> dict:
@@ -1089,10 +1102,12 @@ def populate_figures(ome: OME, conn: BlitzGateway, filepath: str):
                                                      value=b64
                                                      )
                                     )
-            f, _ = create_file_ann_and_ref(id=fig_obj.getId(),
-                                           namespace=fig_obj.getNs(),
-                                           description=fig_obj.getDescription(),
-                                           binary_file=binaryfile)
+            f, _ = create_file_ann_and_ref(
+                id=fig_obj.getId(),
+                namespace=fig_obj.getNs(),
+                description=fig_obj.getDescription(),
+                binary_file=binaryfile,
+            )
             filepath_ann, ref = create_figure_annotations(f.id)
             ome.structured_annotations.append(filepath_ann)
             f.annotation_ref.append(ref)

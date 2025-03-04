@@ -17,7 +17,6 @@ from ome_types.model import TimestampAnnotation, Annotation
 from ome_types.model import Line, Point, Rectangle, Ellipse, Polygon, Shape
 from ome_types.model import Polyline, Label, Project, Screen, Dataset, OME
 from ome_types.model import Image, Plate, XMLAnnotation, AnnotationRef
-from ome_types.model.simple_types import Marker
 from ome_types._mixins._base_type import OMEType
 from omero.gateway import TagAnnotationWrapper, MapAnnotationWrapper
 from omero.gateway import CommentAnnotationWrapper, LongAnnotationWrapper
@@ -26,7 +25,6 @@ from omero.gateway import TimestampAnnotationWrapper, XmlAnnotationWrapper
 from omero.sys import Parameters
 from omero.gateway import BlitzGateway
 from omero.rtypes import rstring, RStringI, rint, rdouble, rbool
-from ezomero import rois
 from pathlib import Path
 import xml.etree.cElementTree as ETree
 import os
@@ -265,7 +263,8 @@ def get_xmlannotation_value(a):
         '<Value xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
     )
     elt = ETree.parse(io.StringIO(value_xml)).getroot()
-    new_xml = elt.text + "".join(ETree.tostring(c, encoding="unicode") for c in elt)
+    fragments = (ETree.tostring(c, encoding="unicode") for c in elt)
+    new_xml = elt.text + "".join(fragments)
     try:
         new_xml = ETree.tostring(
             ETree.parse(io.StringIO(new_xml)).getroot(), encoding="unicode"
@@ -365,9 +364,9 @@ def create_original_file(ann: FileAnnotation, ans: List[Annotation],
                          conn: BlitzGateway, folder: str
                          ) -> OriginalFileWrapper:
     # If FileAnnotation contains literal content (could only be injected by
-    # other code of ours in the unpack process as the pack process always leaves
-    # the content empty), send that as the new file's content. Otherwise upload
-    # the local file from the pack folder.
+    # other code of ours in the unpack process as the pack process always
+    # leaves the content empty), send that as the new file's content. Otherwise
+    # upload the local file from the pack folder.
     if ann.binary_file.bin_data.length:
         bf = ann.binary_file
         f = io.BytesIO(bf.bin_data.value)
@@ -688,7 +687,8 @@ def link_images(ome: OME, obj_map: dict, img_map: dict, conn: BlitzGateway):
     return
 
 
-def link_annotations(ome: OME, obj_map: dict, img_map: dict, conn: BlitzGateway):
+def link_annotations(ome: OME, obj_map: dict, img_map: dict,
+                     conn: BlitzGateway):
     for proj in ome.projects:
         proj_id = obj_map[proj.id]
         proj_obj = conn.getObject("Project", proj_id)
@@ -817,7 +817,10 @@ def apply_rdef(im_obj, rdef, conn):
     settings = json.loads(rdef)
     cs = settings["c"]
     if len(cs) != im_obj.getSizeC():
-        print(f"Wrong number of channels in renderingdef (old rdef {rdef['id']}, new image {im_obj.id})")
+        print(
+            "Wrong number of channels in renderingdef (old rdef"
+            f" {rdef['id']}, new image {im_obj.id})"
+        )
         return
     windows = [(c["start"], c["end"]) for c in cs]
     colors = [c["color"] for c in cs]
@@ -887,7 +890,9 @@ def apply_image_settings(ome: OME, img_map: dict, conn: BlitzGateway):
             continue
         im_obj = conn.getObject("Image", img_id)
         pvcs_anns = pop_annotations(
-            ome, img, "openmicroscopy.org/cli/transfer/pathviewer-channel-settings"
+            ome,
+            img,
+            "openmicroscopy.org/cli/transfer/pathviewer-channel-settings",
         )
         apply_pvcs(im_obj, pvcs_anns, conn)
         rdef_ann = pop_first_annotation(
@@ -932,8 +937,8 @@ def populate_omero(ome: OME, img_map: dict, conn: BlitzGateway, hash: str,
     proj_map = create_or_set_projects(ome.projects, conn, merge)
     ds_map = create_or_set_datasets(ome.datasets, ome.projects, conn, merge)
     screen_map = create_or_set_screens(ome.screens, conn, merge)
-    ann_map = create_annotations(ome.structured_annotations, conn, hash, folder,
-                                 figure, obj_map, img_map, metadata)
+    ann_map = create_annotations(ome.structured_annotations, conn, hash,
+                                 folder, figure, obj_map, img_map, metadata)
     for m in plate_map, proj_map, ds_map, screen_map, ann_map:
         obj_map.update(m)
     create_rois(ome.rois, ome.images, obj_map, img_map, conn)
