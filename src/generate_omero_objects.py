@@ -840,6 +840,7 @@ def apply_rdef(im_obj, rdef, conn):
     im_obj.setDefaultT(settings["t"])
     im_obj.saveDefaults()
     conn.setChannelNames("Image", [im_obj.id], names)
+    im_obj._closeRE()
 
 
 def gen_pop_annotations(ome: OME, obj: OMEType, namespace: str):
