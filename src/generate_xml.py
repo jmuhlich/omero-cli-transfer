@@ -413,7 +413,7 @@ def create_figure_annotations(id: str) -> Tuple[XMLAnnotation,
     return an, anref
 
 
-def create_provenance_metadata(conn: BlitzGateway, img_id: int,
+def create_provenance_metadata(conn: BlitzGateway, obj: Union[ImageI, PlateI],
                                hostname: str,
                                metadata: Union[List[str], None], plate: bool
                                ) -> Union[Tuple[MapAnnotation, AnnotationRef],
@@ -424,17 +424,18 @@ def create_provenance_metadata(conn: BlitzGateway, img_id: int,
     version = pkg_resources.get_distribution(software).version
     date_time = datetime.now().strftime("%d/%m/%Y, %H:%M:%S")
     ns = 'openmicroscopy.org/cli/transfer'
-    curr_user = conn.getUser().getName()
-    curr_group = conn.getGroupFromContext().getName()
+    md_owner = f"{obj.getOwnerFullName()} (id: {obj.details.owner.id.val})"
+    group = obj.details.group
+    md_group = f"{group.name.val} (id: {group.id.val})"
     db_id = conn.getConfigService().getDatabaseUuid()
 
     md_dict: Dict[str, Any] = {}
     if plate:
         if "plate_id" in metadata:
-            md_dict['origin_plate_id'] = img_id
+            md_dict['origin_plate_id'] = obj.id
     else:
         if "img_id" in metadata:
-            md_dict['origin_image_id'] = img_id
+            md_dict['origin_image_id'] = obj.id
     if "timestamp" in metadata:
         md_dict['packing_timestamp'] = date_time
     if "software" in metadata:
@@ -446,9 +447,9 @@ def create_provenance_metadata(conn: BlitzGateway, img_id: int,
     if "md5" in metadata:
         md_dict['md5'] = "TBC"
     if "orig_user" in metadata:
-        md_dict['original_user'] = curr_user
+        md_dict['original_user'] = md_owner
     if "orig_group" in metadata:
-        md_dict['original_group'] = curr_group
+        md_dict['original_group'] = md_group
     if "db_id" in metadata:
         md_dict['database_id'] = db_id
     xml = create_metadata_xml(md_dict)
@@ -706,7 +707,7 @@ def populate_image(obj: ImageI, ome: OME, conn: BlitzGateway, hostname: str,
         # them back to the right place during unpack.
         ome.structured_annotations.append(ann)
         img.annotation_refs.append(ref)
-    kv, ref = create_provenance_metadata(conn, id, hostname, metadata, False)
+    kv, ref = create_provenance_metadata(conn, obj, hostname, metadata, False)
     if kv:
         kv_id = f"Annotation:{str(kv.id)}"
         if kv_id not in [i.id for i in ome.structured_annotations]:
@@ -806,7 +807,7 @@ def populate_plate(obj: PlateI, ome: OME, conn: BlitzGateway,
     pl, pl_ref = create_plate_and_ref(id=id, name=name, description=desc)
     for ann in obj.listAnnotations():
         add_annotation(pl, ann, ome, conn)
-    kv, ref = create_provenance_metadata(conn, id, hostname, metadata, True)
+    kv, ref = create_provenance_metadata(conn, obj, hostname, metadata, True)
     if kv:
         kv_id = f"Annotation:{str(kv.id)}"
         if kv_id not in [i.id for i in ome.structured_annotations]:
